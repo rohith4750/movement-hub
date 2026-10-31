@@ -29,7 +29,23 @@ export function createApp() {
   const app = express();
   app.set("trust proxy", 1);
   app.use(helmet());
-  app.use(cors({ origin: env.CORS_ORIGINS.split(",").map((o) => o.trim()), credentials: true }));
+  const allowedOrigins = env.CORS_ORIGINS.split(",").map((o) => o.trim());
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes("*") || allowedOrigins.includes(origin)) return callback(null, true);
+        try {
+          const parsed = new URL(origin);
+          if (parsed.hostname.endsWith(".vercel.app") || parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+            return callback(null, true);
+          }
+        } catch {}
+        return callback(null, false);
+      },
+      credentials: true,
+    })
+  );
   app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
 
   // Webhooks need the raw body for signature verification — mount before JSON parser.
