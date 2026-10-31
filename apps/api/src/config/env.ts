@@ -1,11 +1,18 @@
 import { z } from "zod";
 
+const defaultDbUrl =
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_URL ||
+  process.env.PRISMA_DATABASE_URL ||
+  process.env.DATABASE_URL_POOLED ||
+  "postgresql://postgres:postgres@localhost:5432/movement_hub";
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().default(4000),
-  DATABASE_URL: z.string().min(1),
-  JWT_ACCESS_SECRET: z.string().min(32),
-  JWT_REFRESH_SECRET: z.string().min(32),
+  DATABASE_URL: z.string().default(defaultDbUrl),
+  JWT_ACCESS_SECRET: z.string().min(32).default("movement-hub-jwt-access-secret-32-chars-minimum-fallback"),
+  JWT_REFRESH_SECRET: z.string().min(32).default("movement-hub-jwt-refresh-secret-32-chars-minimum-fallback"),
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
   JWT_REFRESH_EXPIRES_DAYS: z.coerce.number().default(7),
   RAZORPAY_KEY_ID: z.string().optional().default(""),
@@ -18,7 +25,7 @@ const schema = z.object({
   STORAGE_BUCKET: z.string().optional().default(""),
   STORAGE_ACCESS_KEY: z.string().optional().default(""),
   STORAGE_SECRET_KEY: z.string().optional().default(""),
-  CORS_ORIGINS: z.string().default("http://localhost:3000"),
+  CORS_ORIGINS: z.string().default("*"),
   TIMEZONE_OFFSET: z.string().default("+05:30"),
 });
 

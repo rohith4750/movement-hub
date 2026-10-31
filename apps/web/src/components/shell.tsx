@@ -86,7 +86,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
 
   const sections = NAV.map((s) => ({ ...s, items: s.items.filter((n) => hasRole(user, ...n.roles)) })).filter((s) => s.items.length);
-  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  const isActive = (href: string) => pathname === href || !!pathname?.startsWith(`${href}/`);
 
   return (
     <div className="flex h-screen overflow-hidden">

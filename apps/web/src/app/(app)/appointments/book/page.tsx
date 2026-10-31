@@ -56,9 +56,9 @@ function BookAppointment() {
   const qc = useQueryClient();
   const user = useAuth((s) => s.user);
   const isPatient = user?.role === "PATIENT";
-  const rescheduleId = params.get("reschedule") ?? undefined;
-  const fixedPatient = params.get("patientId") ?? undefined;
-  const typeParam = TYPES.some((t) => t.value === params.get("type")) ? (params.get("type") as VisitType) : null;
+  const rescheduleId = params?.get("reschedule") ?? undefined;
+  const fixedPatient = params?.get("patientId") ?? undefined;
+  const typeParam = TYPES.some((t) => t.value === params?.get("type")) ? (params?.get("type") as VisitType) : null;
 
   const [search, setSearch] = useState("");
   const [patientChoice, setPatientChoice] = useState<string | null>(null);

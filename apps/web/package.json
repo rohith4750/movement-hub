@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@movement-hub/api": "*",
     "@tanstack/react-query": "^5.59.20",
     "clsx": "^2.1.1",
     "lucide-react": "^0.460.0",

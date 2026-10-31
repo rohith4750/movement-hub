@@ -32,7 +32,8 @@ export default function TherapySessionsPage() {
 
 function Sessions() {
   const user = useAuth((s) => s.user);
-  const openId = useSearchParams().get("open");
+  const searchParams = useSearchParams();
+  const openId = searchParams?.get("open") ?? null;
   const [selected, setSelected] = useState<string | null>(null);
   const q = useQuery({ queryKey: ["sessions", "today"], queryFn: () => api.get<Session[]>("/therapy-sessions/today"), refetchInterval: 60_000 });
 

@@ -23,7 +23,8 @@ export default function NewConsultationPage() {
 /** Consultation + clinical assessment, optionally creating the treatment plan in the same step. */
 function ConsultationForm() {
   const router = useRouter();
-  const appointmentId = useSearchParams().get("appointmentId") ?? "";
+  const searchParams = useSearchParams();
+  const appointmentId = searchParams?.get("appointmentId") ?? "";
   const appt = useQuery({ queryKey: ["appointment", appointmentId], queryFn: () => api.get<Appointment>(`/appointments/${appointmentId}`), enabled: !!appointmentId });
 
   const [c, setC] = useState({ chiefComplaint: "", symptoms: "", historyOfIllness: "", clinicalImpression: "", recommendations: "", followUpDate: "" });

@@ -30,7 +30,8 @@ const TYPES = ["INITIAL_CONSULTATION", "FOLLOW_UP_CONSULTATION", "THERAPY_SESSIO
 export default function AppointmentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const justBooked = useSearchParams().get("booked") === "1";
+  const searchParams = useSearchParams();
+  const justBooked = searchParams ? searchParams.get("booked") === "1" : false;
   const qc = useQueryClient();
   const user = useAuth((s) => s.user);
   const isAdmin = hasRole(user, "ADMIN");
