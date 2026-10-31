@@ -1,10 +1,10 @@
 import { z } from "zod";
 
 const defaultDbUrl =
+  process.env.DATABASE_URL_POOLED ||
   process.env.DATABASE_URL ||
   process.env.POSTGRES_URL ||
   process.env.PRISMA_DATABASE_URL ||
-  process.env.DATABASE_URL_POOLED ||
   "postgresql://postgres:postgres@localhost:5432/movement_hub";
 
 const schema = z.object({

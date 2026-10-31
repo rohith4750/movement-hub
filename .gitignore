@@ -5,5 +5,7 @@ dist/
 .env.*
 !.env.example
 *.log
+*.apk
+*.aab
 coverage/
 .turbo/
