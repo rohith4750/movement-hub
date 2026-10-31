@@ -5,10 +5,10 @@ import { Montserrat_600SemiBold } from "@expo-google-fonts/montserrat/600SemiBol
 import { Montserrat_700Bold } from "@expo-google-fonts/montserrat/700Bold";
 import { useFonts } from "expo-font";
 import { QueryClient, QueryClientProvider, focusManager, onlineManager } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppState, Platform, type AppStateStatus } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth";
@@ -39,6 +39,9 @@ export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_600SemiBold, Montserrat_700Bold });
   const status = useAuth((s) => s.status);
   const hydrate = useAuth((s) => s.hydrate);
+  const router = useRouter();
+  const segments = useSegments();
+  const hasNavigated = useRef(false);
 
   useEffect(() => {
     hydrate();
@@ -53,6 +56,20 @@ export default function RootLayout() {
   useEffect(() => {
     if (status === "signedOut") queryClient.clear();
   }, [status, queryClient]);
+
+  // Redirect to /login when signed out, regardless of which screen the user is on.
+  useEffect(() => {
+    if (status === "loading") return;
+    const inLogin = segments[0] === "login";
+    if (status === "signedOut" && !inLogin) {
+      // Use replace so the back button doesn't go to a protected screen.
+      router.replace("/login");
+      hasNavigated.current = true;
+    } else if (status === "signedIn" && inLogin) {
+      router.replace("/");
+      hasNavigated.current = true;
+    }
+  }, [status, segments, router]);
 
   const ready = (fontsLoaded || !!fontError) && status !== "loading";
   useEffect(() => {
