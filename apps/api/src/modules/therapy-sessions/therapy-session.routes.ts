@@ -1,0 +1,180 @@
+import { Router } from "express";
+import { z } from "zod";
+import { prisma, type Prisma } from "@movement-hub/database";
+import { created, handler, idParam, meta, ok, paginationQuery, paging, q } from "../../lib/http.js";
+import { audit } from "../../lib/audit.js";
+import { forbidden, unprocessable } from "../../lib/http-error.js";
+import { dayRange, todayLocal } from "../../lib/time.js";
+import { assertPatientAccess, authorize } from "../../middleware/auth.js";
+import { validate } from "../../middleware/validate.js";
+import { transition } from "../appointments/appointment.service.js";
+import { useSession } from "../packages/package.service.js";
+
+export const therapySessionRouter = Router();
+
+const pain = z.number().int().min(0).max(10);
+const exercise = z.object({
+  name: z.string().min(2),
+  sets: z.number().int().positive().optional(),
+  reps: z.number().int().positive().optional(),
+  durationMinutes: z.number().int().positive().optional(),
+  resistance: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+const include = {
+  patient: { select: { id: true, patientCode: true, firstName: true, lastName: true } },
+  therapist: { select: { id: true, user: { select: { name: true } } } },
+  appointment: { select: { id: true, appointmentNo: true, startAt: true, endAt: true, status: true } },
+  treatmentPlan: { select: { id: true, title: true, prescribedSessions: true, items: { orderBy: { sortOrder: "asc" } } } },
+  patientPackage: { select: { id: true, remainingSessions: true, expiryDate: true, package: { select: { name: true } } } },
+  exercises: true,
+} satisfies Prisma.TherapySessionInclude;
+
+async function ownSession(req: Express.Request, id: string) {
+  const s = await prisma.therapySession.findFirstOrThrow({ where: { id, deletedAt: null } });
+  if (req.user!.role === "PHYSIOTHERAPIST" && req.user!.therapistId !== s.therapistId) throw forbidden("This session is assigned to another physiotherapist");
+  return s;
+}
+
+const listQuery = paginationQuery.extend({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  therapistId: z.string().uuid().optional(),
+  patientId: z.string().uuid().optional(),
+  status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "MISSED"]).optional(),
+});
+
+therapySessionRouter.get(
+  "/",
+  authorize("PHYSIOTHERAPIST", "ADMIN", "RECEPTIONIST"),
+  validate({ query: listQuery }),
+  handler(async (req, res) => {
+    const query = q<z.infer<typeof listQuery>>(req);
+    const where: Prisma.TherapySessionWhereInput = {
+      deletedAt: null,
+      therapistId: query.therapistId,
+      patientId: query.patientId,
+      status: query.status,
+      ...(query.date ? { appointment: { startAt: dayRange(query.date) } } : {}),
+    };
+    const [data, total] = await Promise.all([
+      prisma.therapySession.findMany({ where, include, ...paging(query), orderBy: { appointment: { startAt: "asc" } } }),
+      prisma.therapySession.count({ where }),
+    ]);
+    ok(res, data, meta(query, total));
+  }),
+);
+
+therapySessionRouter.get(
+  "/today",
+  authorize("PHYSIOTHERAPIST", "ADMIN", "RECEPTIONIST"),
+  handler(async (req, res) => {
+    const therapistId = req.user!.role === "PHYSIOTHERAPIST" ? req.user!.therapistId ?? undefined : undefined;
+    ok(
+      res,
+      await prisma.therapySession.findMany({
+        where: { deletedAt: null, therapistId, status: { not: "CANCELLED" }, appointment: { startAt: dayRange(todayLocal()) } },
+        include,
+        orderBy: { appointment: { startAt: "asc" } },
+      }),
+    );
+  }),
+);
+
+therapySessionRouter.get(
+  "/:id",
+  authorize("PHYSIOTHERAPIST", "ADMIN", "RECEPTIONIST", "PATIENT"),
+  validate({ params: idParam }),
+  handler(async (req, res) => {
+    const s = await prisma.therapySession.findFirstOrThrow({ where: { id: req.params.id, deletedAt: null }, include });
+    assertPatientAccess(req, s.patientId);
+    ok(res, s);
+  }),
+);
+
+therapySessionRouter.post(
+  "/:id/start",
+  authorize("PHYSIOTHERAPIST"),
+  validate({ params: idParam, body: z.object({ painBefore: pain }) }),
+  handler(async (req, res) => {
+    const s = await ownSession(req, req.params.id);
+    if (s.status !== "SCHEDULED") throw unprocessable("INVALID_STATUS", `Session is ${s.status}`);
+    const updated = await prisma.$transaction(async (tx) => {
+      const appt = await tx.appointment.findUniqueOrThrow({ where: { id: s.appointmentId } });
+      if (appt.status === "SCHEDULED" || appt.status === "CONFIRMED") await transition(tx, appt.id, "CHECKED_IN", req.user!.id, "Auto check-in at session start", { checkedInAt: new Date() });
+      await transition(tx, appt.id, "IN_PROGRESS", req.user!.id);
+      return tx.therapySession.update({ where: { id: s.id }, data: { status: "IN_PROGRESS", painBefore: req.body.painBefore, startedAt: new Date() }, include });
+    });
+    ok(res, updated);
+  }),
+);
+
+const updateBody = z.object({
+  painBefore: pain.optional(),
+  painAfter: pain.optional(),
+  rangeOfMotion: z.record(z.any()).optional(),
+  notes: z.string().optional(),
+  homeAdvice: z.string().optional(),
+  progressRating: z.number().int().min(1).max(5).optional(),
+});
+
+therapySessionRouter.patch(
+  "/:id",
+  authorize("PHYSIOTHERAPIST"),
+  validate({ params: idParam, body: updateBody }),
+  handler(async (req, res) => {
+    const s = await ownSession(req, req.params.id);
+    if (s.status === "CANCELLED") throw unprocessable("INVALID_STATUS", "Session was cancelled");
+    const updated = await prisma.therapySession.update({ where: { id: s.id }, data: req.body, include });
+    await audit(req, "UPDATE", "TherapySession", s.id, s, updated);
+    ok(res, updated);
+  }),
+);
+
+/** Complete: records outcome, completes the appointment and deducts one package session — atomically. */
+therapySessionRouter.post(
+  "/:id/complete",
+  authorize("PHYSIOTHERAPIST"),
+  validate({ params: idParam, body: updateBody.extend({ painAfter: pain, exercises: z.array(exercise).default([]) }) }),
+  handler(async (req, res) => {
+    const s = await ownSession(req, req.params.id);
+    if (s.status !== "IN_PROGRESS" && s.status !== "SCHEDULED") throw unprocessable("INVALID_STATUS", `Session is ${s.status}`);
+    const { exercises, ...data } = req.body;
+    const result = await prisma.$transaction(async (tx) => {
+      const appt = await tx.appointment.findUniqueOrThrow({ where: { id: s.appointmentId } });
+      if (appt.status === "SCHEDULED" || appt.status === "CONFIRMED") await transition(tx, appt.id, "CHECKED_IN", req.user!.id, "Auto check-in");
+      await transition(tx, appt.id, "COMPLETED", req.user!.id, undefined, { completedAt: new Date() });
+      if (exercises.length) await tx.sessionExercise.createMany({ data: exercises.map((e: z.infer<typeof exercise>) => ({ ...e, therapySessionId: s.id })) });
+      const session = await tx.therapySession.update({
+        where: { id: s.id },
+        data: { ...data, status: "COMPLETED", startedAt: s.startedAt ?? new Date(), completedAt: new Date() },
+        include,
+      });
+      const pkg = s.patientPackageId ? await useSession(tx, s.patientPackageId, s.id, req.user!.id) : null;
+      return { session, package: pkg ? { id: pkg.id, remainingSessions: pkg.remainingSessions, status: pkg.status } : null };
+    });
+    await audit(req, "UPDATE", "TherapySession", s.id, { status: s.status }, { status: "COMPLETED" });
+    ok(res, result);
+  }),
+);
+
+therapySessionRouter.post(
+  "/:id/exercises",
+  authorize("PHYSIOTHERAPIST"),
+  validate({ params: idParam, body: exercise }),
+  handler(async (req, res) => {
+    const s = await ownSession(req, req.params.id);
+    created(res, await prisma.sessionExercise.create({ data: { ...req.body, therapySessionId: s.id } }));
+  }),
+);
+
+therapySessionRouter.delete(
+  "/:id/exercises/:exerciseId",
+  authorize("PHYSIOTHERAPIST"),
+  validate({ params: idParam.extend({ exerciseId: z.string().uuid() }) }),
+  handler(async (req, res) => {
+    const s = await ownSession(req, req.params.id);
+    await prisma.sessionExercise.delete({ where: { id: req.params.exerciseId, therapySessionId: s.id } });
+    ok(res, { deleted: true });
+  }),
+);
