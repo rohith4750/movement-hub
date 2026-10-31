@@ -2,7 +2,8 @@ node_modules/
 dist/
 .next/
 .env
-.env.local
+.env.*
+!.env.example
 *.log
 coverage/
 .turbo/
