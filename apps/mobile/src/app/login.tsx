@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Redirect } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Logo, Text } from "@/components/ui";
@@ -19,6 +19,12 @@ export default function Login() {
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Wake the server (and its database connection) while the PIN is being typed, so sign-in and
+  // the first screen don't pay the "cold start" delay. Fire-and-forget: errors are ignored.
+  useEffect(() => {
+    fetch(`${API_URL}/health`).catch(() => {});
+  }, []);
 
   if (status === "signedIn") return <Redirect href="/" />;
 

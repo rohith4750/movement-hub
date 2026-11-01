@@ -23,6 +23,8 @@ function onAppStateChange(status: AppStateStatus) {
 }
 onlineManager.setOnline(true);
 
+const LOCK_AFTER_MS = 5 * 60_000; // ask for the PIN again after 5 minutes away
+
 export default function RootLayout() {
   const [queryClient] = useState(
     () =>
@@ -49,6 +51,20 @@ export default function RootLayout() {
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", onAppStateChange);
+    return () => sub.remove();
+  }, []);
+
+  // Lock the app (back to the PIN screen) after it has been in the background for a while.
+  useEffect(() => {
+    let backgroundedAt: number | null = null;
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "background") backgroundedAt = Date.now();
+      else if (next === "active" && backgroundedAt !== null) {
+        const away = Date.now() - backgroundedAt;
+        backgroundedAt = null;
+        if (away > LOCK_AFTER_MS && useAuth.getState().status === "signedIn") useAuth.getState().signOut();
+      }
+    });
     return () => sub.remove();
   }, []);
 

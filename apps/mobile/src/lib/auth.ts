@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { getItem, removeItem, setItem } from "./storage";
+import { removeItem } from "./storage";
 
 export interface SessionUser {
   id: string;
@@ -30,10 +30,9 @@ interface AuthState {
   signOut: () => Promise<void>;
 }
 
-// Keys: alphanumerics, ".", "-", "_" only (SecureStore rule). Stored separately to stay small.
-const K_ACCESS = "mh.access";
-const K_REFRESH = "mh.refresh";
-const K_USER = "mh.user";
+// Older app versions saved the session on the device. The app now asks for the PIN on every
+// launch, so the session lives in memory only and any saved copy is wiped at startup.
+const LEGACY_KEYS = ["mh.access", "mh.refresh", "mh.user"];
 
 export const useAuth = create<AuthState>((set) => ({
   status: "loading",
@@ -42,25 +41,15 @@ export const useAuth = create<AuthState>((set) => ({
   user: null,
 
   hydrate: async () => {
-    const [accessToken, refreshToken, userJson] = await Promise.all([getItem(K_ACCESS), getItem(K_REFRESH), getItem(K_USER)]);
-    let user: SessionUser | null = null;
-    try {
-      user = userJson ? (JSON.parse(userJson) as SessionUser) : null;
-    } catch {
-      user = null;
-    }
-    // Staff app: any non-patient account with a stored session.
-    if (accessToken && refreshToken && user && user.role !== "PATIENT") set({ status: "signedIn", accessToken, refreshToken, user });
-    else set({ status: "signedOut", accessToken: null, refreshToken: null, user: null });
+    await Promise.all(LEGACY_KEYS.map(removeItem));
+    set({ status: "signedOut", accessToken: null, refreshToken: null, user: null });
   },
 
   signIn: async ({ accessToken, refreshToken, user }) => {
-    await Promise.all([setItem(K_ACCESS, accessToken), setItem(K_REFRESH, refreshToken), setItem(K_USER, JSON.stringify(user))]);
     set({ status: "signedIn", accessToken, refreshToken, user });
   },
 
   signOut: async () => {
-    await Promise.all([removeItem(K_ACCESS), removeItem(K_REFRESH), removeItem(K_USER)]);
     set({ status: "signedOut", accessToken: null, refreshToken: null, user: null });
   },
 }));
