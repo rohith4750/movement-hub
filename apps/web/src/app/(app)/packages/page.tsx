@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
 import { date, fullName, inr, label } from "@/lib/format";
 import type { PackageDef, PatientPackage } from "@/lib/types";
+import { refresh } from "@/lib/invalidate";
 
 export default function PackagesPage() {
   const qc = useQueryClient();
@@ -23,7 +24,7 @@ export default function PackagesPage() {
 
   const buy = useMutation({
     mutationFn: (packageId: string) => api.post("/patient-packages", { packageId }),
-    onSuccess: () => { qc.invalidateQueries(); alert("Package added. Pay the invoice from Billing to confirm."); },
+    onSuccess: () => { refresh(qc, "packageSale"); alert("Package added. Pay the invoice from Billing to confirm."); },
   });
 
   return (

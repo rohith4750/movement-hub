@@ -22,7 +22,7 @@ interface Dashboard {
 
 export default function DashboardPage() {
   const user = useAuth((s) => s.user);
-  const { data, isLoading, error } = useQuery({ queryKey: ["dashboard"], queryFn: () => api.get<Dashboard>("/reports/dashboard"), refetchInterval: 60_000 });
+  const { data, isLoading, error } = useQuery({ queryKey: ["dashboard"], queryFn: () => api.get<Dashboard>("/reports/dashboard"), refetchInterval: 5 * 60_000 });
 
   if (isLoading) return <Spinner />;
   if (error || !data) return <ErrorText error={error} />;

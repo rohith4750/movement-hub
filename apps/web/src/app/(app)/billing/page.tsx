@@ -8,6 +8,7 @@ import { api, openDocument } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
 import { date, dateTime, fullName, inr, label } from "@/lib/format";
 import type { Invoice, Patient } from "@/lib/types";
+import { refresh as refreshKeys } from "@/lib/invalidate";
 
 declare global {
   interface Window {
@@ -85,7 +86,7 @@ function InvoiceModal({ id, onClose }: { id: string; onClose: () => void }) {
   const [amount, setAmount] = useState("");
   const [ref, setRef] = useState("");
   const q = useQuery({ queryKey: ["invoice", id], queryFn: () => api.get<InvoiceDetail>(`/invoices/${id}`) });
-  const refresh = () => qc.invalidateQueries();
+  const refresh = () => refreshKeys(qc, "billing");
 
   const pay = useMutation({ mutationFn: () => api.post("/payments", { invoiceId: id, method, amount: Number(amount || q.data?.dueAmount), referenceNo: ref || undefined }), onSuccess: refresh });
   const issue = useMutation({ mutationFn: () => api.post(`/invoices/${id}/issue`), onSuccess: refresh });

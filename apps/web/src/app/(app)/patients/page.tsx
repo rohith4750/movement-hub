@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
 import { date, fullName, label } from "@/lib/format";
 import type { Patient } from "@/lib/types";
+import { refresh } from "@/lib/invalidate";
 
 export default function PatientsPage() {
   const qc = useQueryClient();
@@ -22,7 +23,7 @@ export default function PatientsPage() {
   const { data, isLoading, error } = useQuery({ queryKey: ["patients", search, page], queryFn: () => api.page<Patient>("/patients", { search, page }) });
   const remove = useMutation({
     mutationFn: (p: Patient) => api.del(`/patients/${p.id}`),
-    onSuccess: () => { qc.invalidateQueries(); setDeleting(null); },
+    onSuccess: () => { refresh(qc, "patients"); setDeleting(null); },
   });
 
   return (

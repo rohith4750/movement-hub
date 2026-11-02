@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
 import { dateTime, fullName, label } from "@/lib/format";
 import type { Appointment, TreatmentPlan } from "@/lib/types";
+import { refresh } from "@/lib/invalidate";
 
 type AppointmentDetail = Appointment & {
   history: { id: string; fromStatus: string | null; toStatus: string; note: string | null; createdAt: string }[];
@@ -64,7 +65,7 @@ export default function AppointmentPage({ params }: { params: Promise<{ id: stri
         notes: form.notes,
         ...(open && canManage && form.type !== "HOME_VISIT" ? { type: form.type, treatmentPlanId: form.treatmentPlanId || null } : {}),
       }),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => refresh(qc, "appointments"),
   });
 
   /* ── consultation edit form ── */
@@ -103,7 +104,7 @@ export default function AppointmentPage({ params }: { params: Promise<{ id: stri
   const remove = useMutation({
     mutationFn: () => api.del(`/appointments/${id}`),
     onSuccess: () => {
-      qc.invalidateQueries();
+      refresh(qc, "appointments");
       router.push("/appointments");
     },
   });

@@ -7,7 +7,7 @@ import type { Appointment, Dashboard, Invoice, Me, TherapySession } from "./type
 export const useMyTherapistId = () => useAuth((s) => (s.user?.role === "PHYSIOTHERAPIST" ? s.user.therapistId ?? undefined : undefined));
 
 export function useDashboard() {
-  return useQuery({ queryKey: ["dashboard"], queryFn: () => api.get<Dashboard>("/reports/dashboard"), refetchInterval: 60_000 });
+  return useQuery({ queryKey: ["dashboard"], queryFn: () => api.get<Dashboard>("/reports/dashboard"), refetchInterval: 5 * 60_000 });
 }
 
 /** Appointments on a day. `mine` (default true) limits a physio to their own; false shows the whole clinic. */
@@ -27,7 +27,7 @@ export function useTodaySessions() {
     queryKey: ["sessions", "today"],
     queryFn: () => api.get<TherapySession[]>("/therapy-sessions/today"),
     enabled: hasRole(user, "PHYSIOTHERAPIST", "ADMIN", "RECEPTIONIST"),
-    refetchInterval: 60_000,
+    refetchInterval: 2 * 60_000,
   });
 }
 

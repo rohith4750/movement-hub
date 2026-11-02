@@ -8,6 +8,7 @@ import { ConfirmDelete, Empty, ErrorText, Field, Modal, PageHeader, Spinner } fr
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
 import { dateTime, label } from "@/lib/format";
+import { refresh } from "@/lib/invalidate";
 
 interface Staff { id: string; name: string; email: string; phone: string; role: string; isActive: boolean; lastLoginAt: string | null; hasPin: boolean }
 
@@ -21,7 +22,7 @@ export default function StaffPage() {
   const q = useQuery({ queryKey: ["users"], queryFn: () => api.page<Staff>("/users", { limit: 100 }) });
   const remove = useMutation({
     mutationFn: (u: Staff) => api.del(`/users/${u.id}`),
-    onSuccess: () => { qc.invalidateQueries(); setDeleting(null); },
+    onSuccess: () => { refresh(qc, "staff"); setDeleting(null); },
   });
 
   const withoutPin = q.data?.data.filter((u) => !u.hasPin).length ?? 0;

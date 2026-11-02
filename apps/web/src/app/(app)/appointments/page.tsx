@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
 import { date, fullName, label, time, today } from "@/lib/format";
 import type { Appointment } from "@/lib/types";
+import { refresh } from "@/lib/invalidate";
 
 const STATUSES = ["", "SCHEDULED", "CONFIRMED", "CHECKED_IN", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW", "RESCHEDULED"];
 
@@ -34,7 +35,7 @@ export default function AppointmentsPage() {
   const [deleting, setDeleting] = useState<Appointment | null>(null);
   const remove = useMutation({
     mutationFn: (a: Appointment) => api.del(`/appointments/${a.id}`),
-    onSuccess: () => { qc.invalidateQueries(); setDeleting(null); },
+    onSuccess: () => { refresh(qc, "appointments"); setDeleting(null); },
   });
 
   const canManage = hasRole(user, "RECEPTIONIST", "ADMIN");
@@ -134,7 +135,7 @@ function CancelModal({ appt, onClose }: { appt: Appointment | null; onClose: () 
   const [reason, setReason] = useState("");
   const m = useMutation({
     mutationFn: () => api.post(`/appointments/${appt!.id}/cancel`, { reason }),
-    onSuccess: () => { qc.invalidateQueries(); setReason(""); onClose(); },
+    onSuccess: () => { refresh(qc, "appointments"); setReason(""); onClose(); },
   });
   return (
     <Modal open={!!appt} onClose={onClose} title={`Cancel ${appt?.appointmentNo ?? ""}`}>

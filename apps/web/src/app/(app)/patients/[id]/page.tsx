@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
 import { date, dateTime, fullName, inr, label } from "@/lib/format";
 import type { PackageDef } from "@/lib/types";
+import { refresh } from "@/lib/invalidate";
 
 interface PatientDetail {
   id: string; patientCode: string; firstName: string; lastName: string | null; gender: string; dateOfBirth: string | null; phone: string; email: string | null;
@@ -46,7 +47,7 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
   const [newPlan, setNewPlan] = useState(false);
   const removeAppt = useMutation({
     mutationFn: (apptId: string) => api.del(`/appointments/${apptId}`),
-    onSuccess: () => { qc.invalidateQueries(); setDeletingAppt(null); },
+    onSuccess: () => { refresh(qc, "appointments"); setDeletingAppt(null); },
   });
   const p = useQuery({ queryKey: ["patient", id], queryFn: () => api.get<PatientDetail>(`/patients/${id}`) });
   const progress = useQuery({ queryKey: ["progress", id], queryFn: () => api.get<Progress>(`/patients/${id}/progress`), enabled: hasRole(user, "PHYSIOTHERAPIST", "ADMIN") });
@@ -209,7 +210,7 @@ function SellPackage({ open, onClose, patientId }: { open: boolean; onClose: () 
   const pkgs = useQuery({ queryKey: ["packages"], queryFn: () => api.get<PackageDef[]>("/packages"), enabled: open });
   const m = useMutation({
     mutationFn: () => api.post("/patient-packages", { patientId, packageId, discountAmount: Number(discount) || 0, discountReason: reason || undefined }),
-    onSuccess: () => { qc.invalidateQueries(); onClose(); },
+    onSuccess: () => { refresh(qc, "packageSale"); onClose(); },
   });
   return (
     <Modal open={open} onClose={onClose} title="Sell treatment package">

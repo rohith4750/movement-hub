@@ -32,7 +32,7 @@ reportRouter.get(
     const todayR = dayRange(today);
     const monthR = { gte: dayRange(`${today.slice(0, 7)}-01`).gte, lt: todayR.lt };
     const therapistId = req.user!.role === "PHYSIOTHERAPIST" ? req.user!.therapistId ?? undefined : undefined;
-    const [totalPatients, todayAppointments, pendingAppointments, completedSessionsToday, therapists, revenueToday, revenueMonth, upcoming, newPatientsMonth] = await Promise.all([
+    const [totalPatients, todayAppointments, pendingAppointments, completedSessionsToday, therapists, slotCounts, revenueToday, revenueMonth, upcoming, newPatientsMonth] = await Promise.all([
       prisma.patient.count({ where: { deletedAt: null } }),
       prisma.appointment.count({ where: { startAt: todayR, therapistId, status: { notIn: ["CANCELLED", "RESCHEDULED"] } } }),
       prisma.appointment.count({ where: { startAt: { gte: new Date() }, therapistId, status: { in: ["SCHEDULED"] } } }),
@@ -41,10 +41,11 @@ reportRouter.get(
         where: { isActive: true },
         select: {
           id: true, colorTag: true, user: { select: { name: true } },
-          slots: { where: { startAt: todayR }, select: { status: true } },
           leaves: { where: { status: "APPROVED", startDate: { lt: todayR.lt }, endDate: { gt: todayR.gte } }, select: { id: true } },
         },
       }),
+      // Count today's slots per therapist and status in the database instead of loading every slot row.
+      prisma.therapistSlot.groupBy({ by: ["therapistId", "status"], where: { startAt: todayR }, _count: { _all: true } }),
       therapistId ? Promise.resolve(null) : netRevenue(todayR),
       therapistId ? Promise.resolve(null) : netRevenue(monthR),
       prisma.appointment.findMany({
@@ -55,9 +56,11 @@ reportRouter.get(
       }),
       prisma.patient.count({ where: { createdAt: monthR, deletedAt: null } }),
     ]);
+    const slotsOf = (id: string, status: "AVAILABLE" | "BOOKED") =>
+      slotCounts.find((c) => c.therapistId === id && c.status === status)?._count._all ?? 0;
     const utilization = therapists.map((t) => {
-      const total = t.slots.filter((s) => s.status !== "BLOCKED").length;
-      const booked = t.slots.filter((s) => s.status === "BOOKED").length;
+      const booked = slotsOf(t.id, "BOOKED");
+      const total = booked + slotsOf(t.id, "AVAILABLE");
       return { therapistId: t.id, name: t.user.name, colorTag: t.colorTag, onLeave: t.leaves.length > 0, booked, total, percent: total ? Math.round((booked / total) * 100) : 0 };
     });
     ok(res, {

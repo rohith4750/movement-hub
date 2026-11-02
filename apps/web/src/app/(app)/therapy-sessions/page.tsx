@@ -35,7 +35,7 @@ function Sessions() {
   const searchParams = useSearchParams();
   const openId = searchParams?.get("open") ?? null;
   const [selected, setSelected] = useState<string | null>(null);
-  const q = useQuery({ queryKey: ["sessions", "today"], queryFn: () => api.get<Session[]>("/therapy-sessions/today"), refetchInterval: 60_000 });
+  const q = useQuery({ queryKey: ["sessions", "today"], queryFn: () => api.get<Session[]>("/therapy-sessions/today"), refetchInterval: 2 * 60_000 });
 
   useEffect(() => {
     if (openId) setSelected(openId);

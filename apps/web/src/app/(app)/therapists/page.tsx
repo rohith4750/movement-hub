@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
 import { addDays, today } from "@/lib/format";
 import type { Therapist } from "@/lib/types";
+import { refresh } from "@/lib/invalidate";
 
 const DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const;
 type Day = { dayOfWeek: string; on: boolean; startTime: string; endTime: string; breakStart: string; breakEnd: string; slotMinutes: number };
@@ -25,7 +26,7 @@ export default function TherapistsPage() {
   const q = useQuery({ queryKey: ["therapists"], queryFn: () => api.get<Therapist[]>("/therapists", { includeInactive: isAdmin || undefined }) });
   const remove = useMutation({
     mutationFn: (t: Therapist) => api.del(`/therapists/${t.id}`),
-    onSuccess: () => { qc.invalidateQueries(); setDeleting(null); },
+    onSuccess: () => { refresh(qc, "therapists"); setDeleting(null); },
   });
 
   return (
@@ -132,7 +133,7 @@ function ScheduleEditor({ therapist, onClose }: { therapist: Therapist; onClose:
         regenerateDays: 30,
         days: rows.filter((r) => r.on).map(({ on: _on, breakStart, breakEnd, ...r }) => ({ ...r, ...(breakStart && breakEnd ? { breakStart, breakEnd } : {}) })),
       }),
-    onSuccess: () => { qc.invalidateQueries(); onClose(); },
+    onSuccess: () => { refresh(qc, "therapists"); onClose(); },
   });
   const generate = useMutation({ mutationFn: () => api.post<{ created: number }>(`/therapists/${therapist.id}/slots/generate`, { from: today(), to: addDays(today(), 30) }), onSuccess: (r) => alert(`${r.created} new slots created`) });
 
@@ -169,7 +170,7 @@ function LeaveForm({ therapist, onClose }: { therapist: Therapist; onClose: () =
   const m = useMutation({
     mutationFn: () => api.post<{ conflicts: { appointmentNo: string }[] }>(`/therapists/${therapist.id}/leaves`, { ...f, reason: f.reason || undefined }),
     onSuccess: (r) => {
-      qc.invalidateQueries();
+      refresh(qc, "therapists");
       if (r.conflicts.length) alert(`Leave saved. ${r.conflicts.length} appointment(s) need rescheduling: ${r.conflicts.map((c) => c.appointmentNo).join(", ")}`);
       onClose();
     },

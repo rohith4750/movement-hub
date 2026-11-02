@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
 import { date, fullName, label, time, today } from "@/lib/format";
 import type { Appointment, AvailabilityRow, Patient, PatientPackage, Therapist, TreatmentPlan } from "@/lib/types";
+import { refresh } from "@/lib/invalidate";
 
 type VisitType = "INITIAL_CONSULTATION" | "FOLLOW_UP_CONSULTATION" | "THERAPY_SESSION" | "HOME_VISIT";
 
@@ -149,7 +150,7 @@ function BookAppointment() {
       return (await api.post<{ id: string }>("/appointments", { ...base, type })).id;
     },
     onSuccess: (appointmentId) => {
-      qc.invalidateQueries();
+      refresh(qc, "appointments");
       // Open the booked appointment itself (the list only shows today by default).
       router.push(isPatient ? "/appointments" : `/appointments/${appointmentId}?booked=1`);
     },
