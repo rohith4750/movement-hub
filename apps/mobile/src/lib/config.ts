@@ -14,10 +14,10 @@ function resolveApiUrl(): string {
 
   const hostUri = Constants.expoConfig?.hostUri; // e.g. "192.168.29.208:8081"
   const host = hostUri?.split(":")[0];
-  if (host && host !== "localhost" && host !== "127.0.0.1") return `http://${host}:4000/api/v1`;
+  if (host && host !== "localhost" && host !== "127.0.0.1") return `http://${host}:3000/api/v1`;
 
-  if (Platform.OS === "android") return "http://10.0.2.2:4000/api/v1"; // Android emulator → host machine
-  return "http://localhost:4000/api/v1";
+  if (Platform.OS === "android") return "http://10.0.2.2:3000/api/v1"; // Android emulator → host machine
+  return "http://localhost:3000/api/v1";
 }
 
 export const API_URL = resolveApiUrl();

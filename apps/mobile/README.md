@@ -48,7 +48,7 @@ npm install          # first time only — this app has its own node_modules
 npm start            # scan the QR code with Expo Go, or press a / i
 ```
 
-The app finds the API on the computer running `expo start` (port 4000), so a phone on the same Wi-Fi works with no setup. Android emulator falls back to `10.0.2.2`. For production builds set:
+The app finds the API on the computer running `expo start` (port 3000, the Next.js server), so a phone on the same Wi-Fi works with no setup. Android emulator falls back to `10.0.2.2`. For production builds set:
 
 ```bash
 EXPO_PUBLIC_API_URL=https://api.movementhub.example/api/v1

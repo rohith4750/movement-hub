@@ -1,6 +1,6 @@
 # Movement Hub – API Documentation
 
-REST API served by `apps/api` (Node.js + Express + TypeScript + Prisma).
+REST API built into the Next.js web app (`apps/web/src/server`, served from `/api/v1`; TypeScript + Prisma).
 
 - **Base URL:** `/api/v1`
 - **Format:** JSON

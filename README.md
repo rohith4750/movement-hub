@@ -58,12 +58,12 @@ The application supports two primary patient journeys:
 | Server state | TanStack Query | API data, caching, mutations |
 | Forms | React Hook Form + Zod | Form state and validation |
 | Mobile | React Native + Expo | Patient mobile application |
-| API | Node.js + Express + TypeScript | REST API server |
+| API | Next.js API route (Node.js runtime) + TypeScript | REST API built into the web app, no separate server |
 | Validation | Zod | Request/response validation |
 | Database | PostgreSQL | Relational data store |
 | ORM | Prisma | Schema, migrations, data access |
 | Auth | JWT (access + refresh), bcrypt, OTP | Staff and patient authentication |
-| Jobs | In-process scheduler (move to Redis + BullMQ when running multiple API instances) | Reminders, notifications, slot generation, package expiry |
+| Jobs | Vercel Cron → `/api/v1/cron/:job` (in-process timers when self-hosted) | Reminders, notifications, slot generation, package expiry |
 | Payments | Razorpay | Online payments and webhooks |
 | Messaging | WhatsApp Business API | Appointment and payment notifications |
 | Storage | S3-compatible storage | Medical documents and reports |
@@ -153,6 +153,36 @@ movement-hub/
 │   │   │   ├── consultations/
 │   │   │   ├── treatment-plans/
 │   │   │   ├── packages/
+│   │   │   ├── therapy-sessions/
+│   │   │   ├── home-visits/
+│   │   │   ├── billing/
+│   │   │   ├── reports/
+│   │   │   └── settings/
+│   │   └── src/
+│   │       ├── features/
+│   │       ├── components/
+│   │       ├── hooks/
+│   │       └── stores/
+│   │
+│   │   └── src/
+│   │       ├── pages/api/v1/[[...all]].ts   # single entry point for the whole REST API
+│   │       ├── instrumentation.ts           # starts job timers on a long-running server
+│   │       └── server/                      # backend, built into the Next.js app
+│   │           ├── app.ts                   # /api/v1 route tree
+│   │           ├── router.ts                # lightweight router, CORS, security headers, rate limit
+│   │           ├── modules/                 # auth, users, patients, therapists, scheduling,
+│   │           │                            # appointments, consultations, treatment-plans, packages,
+│   │           │                            # therapy-sessions, home-visits, billing, payments,
+│   │           │                            # notifications, documents, reports, settings
+│   │           ├── middleware/              # auth + roles, validation, error handler
+│   │           ├── jobs/                    # slots, reminders, package expiry
+│   │           ├── lib/
+│   │           └── config/
+│   │
+│   └── mobile/                   # React Native + Expo staff app (same /api/v1)
+│       └── src/
+│
+├── packages/
 │   │   │   ├── therapy-sessions/
 │   │   │   ├── home-visits/
 │   │   │   ├── billing/
@@ -310,7 +340,6 @@ cd movement-hub
 npm install
 
 # environment files (edit DATABASE_URL and secrets as needed)
-cp apps/api/.env.example apps/api/.env
 cp packages/database/.env.example packages/database/.env
 cp apps/web/.env.example apps/web/.env.local
 
@@ -321,12 +350,12 @@ docker compose up -d
 npm run db:migrate
 npm run db:seed
 
-# run web (3000) and api (4000) together
+# run the app: web portal + API on one server (port 3000)
 npm run dev
 ```
 
 - Web portal: `http://localhost:3000`
-- API: `http://localhost:4000/api/v1` (health check: `/api/v1/health`)
+- API: `http://localhost:3000/api/v1` (health check: `/api/v1/health`)
 
 ### Sample logins (seed data)
 
@@ -341,13 +370,13 @@ All staff accounts use the password `Movement@123`. Change them before going liv
 | Physiotherapists | `therapist1@movementhub.example` … `therapist4@movementhub.example` |
 | Patient | "Patient" tab → mobile number → OTP (shown on screen in development) |
 
-Therapist slots for the next 30 days are generated automatically when the API starts, and topped up every hour.
+Therapist slots for the next 30 days are generated automatically when the server starts and topped up every hour. On Vercel, the same jobs run through Vercel Cron (`apps/web/vercel.json`).
 
 ### Useful scripts
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | API + web in watch mode |
+| `npm run dev` | Web portal + API in watch mode (port 3000) |
 | `npm run build` | Production build of all packages |
 | `npm run db:migrate` | Apply Prisma migrations |
 | `npm run db:seed` | Load synthetic sample data |
@@ -358,18 +387,22 @@ Therapist slots for the next 30 days are generated automatically when the API st
 
 ## 11. Environment Configuration
 
-`apps/api/.env`
+`apps/web/.env.local` — one file configures both the web portal and its built-in API (see `apps/web/.env.example`).
 
 ```env
-NODE_ENV=development
-PORT=4000
+NEXT_PUBLIC_APP_NAME=Movement Hub
+NEXT_PUBLIC_API_URL=            # leave empty: the portal calls its own /api/v1
+NEXT_PUBLIC_RAZORPAY_KEY_ID=
+
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/movement_hub
-REDIS_URL=redis://localhost:6379
+DATABASE_URL_POOLED=            # optional pooled URL for serverless
 
 JWT_ACCESS_SECRET=
 JWT_REFRESH_SECRET=
 JWT_ACCESS_EXPIRES_IN=15m
-JWT_REFRESH_EXPIRES_IN=7d
+JWT_REFRESH_EXPIRES_DAYS=7
+
+CRON_SECRET=                    # Vercel Cron sends this as a Bearer token
 
 RAZORPAY_KEY_ID=
 RAZORPAY_KEY_SECRET=
@@ -384,14 +417,6 @@ STORAGE_ACCESS_KEY=
 STORAGE_SECRET_KEY=
 
 CORS_ORIGINS=http://localhost:3000
-```
-
-`apps/web/.env`
-
-```env
-NEXT_PUBLIC_APP_NAME=Movement Hub
-NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
-NEXT_PUBLIC_RAZORPAY_KEY_ID=
 ```
 
 Never put secrets in `NEXT_PUBLIC_` variables.

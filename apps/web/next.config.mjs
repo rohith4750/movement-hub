@@ -6,17 +6,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: ["@movement-hub/api", "@movement-hub/database"],
+  transpilePackages: ["@movement-hub/database"],
+  // Keep Prisma and heavy Node-only SDKs out of the server bundle; load them from node_modules.
+  serverExternalPackages: ["@prisma/client", "bcryptjs", "razorpay", "@aws-sdk/client-s3", "@aws-sdk/s3-request-presigner"],
   webpack: (config) => {
-    config.resolve.extensionAlias = {
-      ".js": [".ts", ".tsx", ".js", ".jsx"],
-      ".mjs": [".mts", ".mjs"],
-      ".cjs": [".cts", ".cjs"],
-    };
     config.resolve.alias = {
       ...config.resolve.alias,
       "@movement-hub/database": path.resolve(__dirname, "../../packages/database/src/index.ts"),
-      "@movement-hub/api": path.resolve(__dirname, "../api/src/app.ts"),
     };
     return config;
   },

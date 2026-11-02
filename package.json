@@ -4,25 +4,22 @@
   "version": "1.0.0",
   "description": "Movement Hub – Physiotherapy & Rehab hospital management system",
   "workspaces": [
-    "apps/api",
     "apps/web",
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @movement-hub/api\" \"npm run dev -w @movement-hub/web\"",
-    "dev:api": "npm run dev -w @movement-hub/api",
-    "dev:web": "npm run dev -w @movement-hub/web",
-    "build": "npm run build -w @movement-hub/database && npm run build -w @movement-hub/api && npm run build -w @movement-hub/web",
+    "dev": "npm run dev -w @movement-hub/web",
+    "build": "npm run build -w @movement-hub/database && npm run build -w @movement-hub/web",
     "db:generate": "npm run generate -w @movement-hub/database",
     "db:migrate": "npm run migrate -w @movement-hub/database",
     "db:seed": "npm run seed -w @movement-hub/database",
     "db:studio": "npm run studio -w @movement-hub/database",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:mobile": "npm --prefix apps/mobile start",
-    "mobile:install": "npm --prefix apps/mobile install"
+    "mobile:install": "npm --prefix apps/mobile install",
+    "start": "npm run start -w @movement-hub/web"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0",
     "typescript": "^5.6.3"
   },
   "engines": {

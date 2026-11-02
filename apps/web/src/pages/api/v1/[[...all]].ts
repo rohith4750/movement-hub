@@ -1,16 +1,17 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createApp } from "@movement-hub/api";
+import { createApiHandler } from "@/server/app";
 
-const app = createApp();
+// Built once per server instance and reused across requests.
+const handle = createApiHandler();
 
 export const config = {
   api: {
-    bodyParser: false,
+    bodyParser: false, // the router reads the body itself (webhooks need the raw bytes)
     externalResolver: true,
+    responseLimit: false,
   },
 };
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
-  return app(req, res);
+  return handle(req, res);
 }
-
