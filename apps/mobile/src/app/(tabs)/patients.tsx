@@ -3,16 +3,19 @@ import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { BrandHeader, Button, Empty, ErrorBox, Input, Loading, Muted, Row, Screen, Text } from "@/components/ui";
-import { useHasRole } from "@/lib/auth";
+import { BrandHeader, Button, Chips, Empty, ErrorBox, Input, Loading, Muted, Row, Screen, Text } from "@/components/ui";
+import { useAuth, useHasRole } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { fullName, label } from "@/lib/format";
+import { ageFrom, fullName, label } from "@/lib/format";
 import type { PatientListItem } from "@/lib/types";
 import { colors, radius, shadow, space } from "@/theme";
 
 /** Search patients by name, phone or patient code. */
 export default function Patients() {
   const canAdd = useHasRole("ADMIN", "RECEPTIONIST"); // Super Admin + physiotherapists (who run the front desk)
+  const isPhysio = useAuth((s) => s.user?.role === "PHYSIOTHERAPIST");
+  const [scope, setScope] = useState<"mine" | "all">("mine");
+  const mine = isPhysio && scope === "mine";
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   useEffect(() => {
@@ -21,14 +24,17 @@ export default function Patients() {
   }, [search]);
 
   const q = useQuery({
-    queryKey: ["patients", "mobile", debounced],
-    queryFn: () => api.page<PatientListItem>("/patients", { search: debounced || undefined, limit: 40, sort: "createdAt:desc" }),
+    queryKey: ["patients", "mobile", debounced, mine],
+    queryFn: () => api.page<PatientListItem>("/patients", { search: debounced || undefined, limit: 40, sort: "createdAt:desc", mine: mine ? "true" : undefined }),
   });
 
   return (
     <Screen refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
       <BrandHeader title="Patients" subtitle={q.data ? `${q.data.meta.total} registered` : "Search by name, phone or code"} />
       {canAdd ? <Button title="Add patient" variant="gold" icon="person-add-outline" onPress={() => router.push("/patient/new")} /> : null}
+      {isPhysio ? (
+        <Chips<"mine" | "all"> value={scope} onChange={setScope} options={[{ value: "mine", label: "My patients" }, { value: "all", label: "All patients" }]} />
+      ) : null}
       <Row style={styles.search}>
         <Ionicons name="search" size={18} color={colors.muted} />
         <Input value={search} onChangeText={setSearch} placeholder="Name, phone or MH-P code" autoCorrect={false} style={{ flex: 1, borderWidth: 0, paddingHorizontal: 0 }} returnKeyType="search" />
@@ -47,7 +53,7 @@ export default function Patients() {
         <Empty
           icon="people-outline"
           title="No patients found"
-          message={search ? "Try a different name or number." : undefined}
+          message={search ? "Try a different name or number." : mine ? "No regular patients yet — switch to All patients, or set yourself as their regular physio." : undefined}
           action={canAdd ? <Button title="Add a new patient" variant="ghost" small icon="person-add-outline" onPress={() => router.push("/patient/new")} /> : undefined}
         />
       ) : (
@@ -64,7 +70,8 @@ export default function Patients() {
               </View>
               <View style={{ flex: 1, gap: 2 }}>
                 <Text weight="semibold" style={{ fontSize: 15 }} numberOfLines={1}>{fullName(p)}</Text>
-                <Muted style={{ fontSize: 12 }} numberOfLines={1}>{p.patientCode} · {p.phone} · {label(p.gender)}</Muted>
+                <Muted style={{ fontSize: 12 }} numberOfLines={1}>{p.patientCode} · {p.phone} · {label(p.gender)}{ageFrom(p.dateOfBirth) !== null ? ` · ${ageFrom(p.dateOfBirth)} yrs` : ""}</Muted>
+                {p.primaryTherapist && !mine ? <Muted style={{ fontSize: 12 }} numberOfLines={1}>Physio: {p.primaryTherapist.user.name}</Muted> : null}
                 {p.treatmentPlans?.[0] ? <Muted style={{ fontSize: 12, color: colors.gold700 }} numberOfLines={1}>{p.treatmentPlans[0].title}</Muted> : null}
               </View>
               <Ionicons name="chevron-forward" size={16} color={colors.muted} />

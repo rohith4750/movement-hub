@@ -1,4 +1,4 @@
-import { Router } from "../../router";
+import { Router, type Request } from "../../router";
 import { z } from "zod";
 import { prisma, type Prisma } from "@movement-hub/database";
 import { created, handler, idParam, meta, ok, orderBy, paginationQuery, paging, q } from "../../lib/http";
@@ -8,7 +8,7 @@ import { dateOnly } from "../../lib/time";
 import { assertPatientAccess, authorize, STAFF } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { phoneSchema } from "../../lib/validators";
-import { notFound, unprocessable } from "../../lib/http-error";
+import { badRequest, notFound, unprocessable } from "../../lib/http-error";
 
 export const patientRouter = Router();
 
@@ -39,9 +39,24 @@ const patientBody = z.object({
   emergencyPhone: phone.optional(),
   occupation: z.string().optional(),
   referredBy: z.string().optional(),
+  /** Regular physiotherapist for this patient (null = none). */
+  primaryTherapistId: z.string().uuid().nullable().optional(),
   consentGiven: z.boolean().default(false),
   address: address.optional(),
 });
+
+const primaryTherapistSelect = { select: { id: true, colorTag: true, user: { select: { name: true } } } } as const;
+
+/** The physio must exist and be active; a physio registering a patient becomes their regular physio by default. */
+async function resolvePrimaryTherapist(req: Request, requested: string | null | undefined, isCreate: boolean) {
+  if (requested) {
+    const t = await prisma.therapist.findFirst({ where: { id: requested, isActive: true } });
+    if (!t) throw badRequest("Physiotherapist not found or inactive", "THERAPIST_NOT_FOUND");
+    return requested;
+  }
+  if (requested === null) return null;
+  return isCreate && req.user!.role === "PHYSIOTHERAPIST" ? req.user!.therapistId ?? undefined : undefined;
+}
 
 const historyBody = z.object({
   condition: z.string().min(2),
@@ -53,7 +68,13 @@ const historyBody = z.object({
   isOngoing: z.boolean().default(true),
 });
 
-const listQuery = paginationQuery.extend({ gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional() });
+const listQuery = paginationQuery.extend({
+  gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
+  /** Patients whose regular physio is this therapist. */
+  therapistId: z.string().uuid().optional(),
+  /** "true" = the signed-in physio's own regular patients. */
+  mine: z.enum(["true", "false"]).optional(),
+});
 
 /* ─────────────── Patients ─────────────── */
 
@@ -66,6 +87,7 @@ patientRouter.get(
     const where: Prisma.PatientWhereInput = {
       deletedAt: null,
       gender: query.gender,
+      primaryTherapistId: query.mine === "true" ? req.user!.therapistId ?? "__none__" : query.therapistId,
       ...(query.search
         ? {
             OR: [
@@ -85,6 +107,7 @@ patientRouter.get(
         include: {
           packages: { where: { status: "ACTIVE" }, select: { id: true, remainingSessions: true, expiryDate: true } },
           treatmentPlans: { where: { status: "ACTIVE" }, select: { id: true, title: true } },
+          primaryTherapist: primaryTherapistSelect,
         },
       }),
       prisma.patient.count({ where }),
@@ -98,12 +121,14 @@ patientRouter.post(
   authorize("ADMIN", "RECEPTIONIST"),
   validate({ body: patientBody }),
   handler(async (req, res) => {
-    const { address: addr, dateOfBirth, ...data } = req.body as z.infer<typeof patientBody>;
+    const { address: addr, dateOfBirth, primaryTherapistId: requestedTherapist, ...data } = req.body as z.infer<typeof patientBody>;
+    const primaryTherapistId = await resolvePrimaryTherapist(req, requestedTherapist, true);
     const branchId = req.user!.branchId ?? (await prisma.branch.findFirstOrThrow()).id;
     const patient = await prisma.$transaction(async (tx) =>
       tx.patient.create({
         data: {
           ...data,
+          primaryTherapistId: primaryTherapistId ?? undefined,
           branchId,
           patientCode: await nextCode(tx, "patient"),
           dateOfBirth: dateOfBirth ? dateOnly(dateOfBirth) : undefined,
@@ -126,6 +151,7 @@ patientRouter.get(
     const patient = await prisma.patient.findFirstOrThrow({
       where: { id: req.params.id, deletedAt: null },
       include: {
+        primaryTherapist: primaryTherapistSelect,
         addresses: true,
         medicalHistory: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
         packages: { include: { package: true }, orderBy: { createdAt: "desc" } },
@@ -143,11 +169,13 @@ patientRouter.patch(
   validate({ params: idParam, body: patientBody.omit({ address: true }).partial() }),
   handler(async (req, res) => {
     assertPatientAccess(req, req.params.id);
-    const { dateOfBirth, ...data } = req.body;
+    const { dateOfBirth, primaryTherapistId: requestedTherapist, ...data } = req.body;
+    // Patients can't change their own physio; staff can (null clears it).
+    const primaryTherapistId = req.user!.role === "PATIENT" ? undefined : await resolvePrimaryTherapist(req, requestedTherapist, false);
     const before = await prisma.patient.findUniqueOrThrow({ where: { id: req.params.id } });
     const patient = await prisma.patient.update({
       where: { id: req.params.id },
-      data: { ...data, dateOfBirth: dateOfBirth ? dateOnly(dateOfBirth) : undefined, consentAt: data.consentGiven && !before.consentGiven ? new Date() : undefined },
+      data: { ...data, primaryTherapistId, dateOfBirth: dateOfBirth ? dateOnly(dateOfBirth) : undefined, consentAt: data.consentGiven && !before.consentGiven ? new Date() : undefined },
     });
     await audit(req, "UPDATE", "Patient", patient.id, before, patient);
     ok(res, patient);

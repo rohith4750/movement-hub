@@ -107,7 +107,7 @@ export function PlanFields({ plan, onChange, showExtras }: { plan: PlanDraft; on
   const set = (k: keyof PlanDraft) => (t: string) => onChange({ ...plan, [k]: k === "sessions" || k === "perWeek" || k === "minutes" ? digits(t) : t });
   return (
     <View style={{ gap: space.md }}>
-      <Field label="Plan title *"><Input value={plan.title} onChangeText={set("title")} placeholder="e.g. Lower back rehab" /></Field>
+      <Field label="Plan title" hint="Optional — uses the diagnosis if left empty"><Input value={plan.title} onChangeText={set("title")} placeholder="e.g. Lower back rehab" /></Field>
       <Field label="Diagnosis"><Input value={plan.diagnosis} onChangeText={set("diagnosis")} /></Field>
       {showExtras ? <Field label="Goals"><Input value={plan.goals} onChangeText={set("goals")} /></Field> : null}
       <Row gap={space.sm}>
@@ -122,7 +122,6 @@ export function PlanFields({ plan, onChange, showExtras }: { plan: PlanDraft; on
 
 /** Why a plan draft can't be saved yet (null = OK). Mirrors the API's limits. */
 export function planProblem(plan: PlanDraft, items: PlanItemDraft[]): string | null {
-  if (plan.title.trim().length < 2) return "Enter a plan title";
   const s = Number(plan.sessions);
   const w = Number(plan.perWeek);
   const m = Number(plan.minutes);
@@ -135,7 +134,7 @@ export function planProblem(plan: PlanDraft, items: PlanItemDraft[]): string | n
 
 /** Body for POST /treatment-plans from the drafts. */
 export const planBody = (plan: PlanDraft, items: PlanItemDraft[]) => ({
-  title: plan.title.trim(),
+  title: plan.title.trim() || undefined,
   diagnosis: plan.diagnosis.trim() || undefined,
   goals: plan.goals.trim() || undefined,
   instructions: plan.instructions.trim() || undefined,

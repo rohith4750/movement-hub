@@ -28,7 +28,7 @@ function ConsultationForm() {
   const appt = useQuery({ queryKey: ["appointment", appointmentId], queryFn: () => api.get<Appointment>(`/appointments/${appointmentId}`), enabled: !!appointmentId });
 
   const [c, setC] = useState({ chiefComplaint: "", symptoms: "", historyOfIllness: "", clinicalImpression: "", recommendations: "", followUpDate: "" });
-  const [a, setA] = useState({ painScore: 5, painLocation: "", painType: "", aggravatingFactors: "", relievingFactors: "", posture: "", mobilityStatus: "", gait: "", observations: "" });
+  const [a, setA] = useState({ painScore: 5, painLocation: "", painType: "", aggravatingFactors: "", relievingFactors: "", posture: "", mobilityStatus: "", gait: "", observations: "", diagnosis: "" });
   const [rom, setRom] = useState<{ joint: string; value: string }[]>([]);
   const [tests, setTests] = useState<{ name: string; result: string }[]>([]);
   const [makePlan, setMakePlan] = useState(true);
@@ -42,7 +42,6 @@ function ConsultationForm() {
     mutationFn: async () => {
       const clean = <T extends object>(o: T) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== "" && v !== undefined));
       const planItems = items.filter((i) => i.name.trim()).map((i, n) => ({ ...i, name: i.name.trim(), sortOrder: n }));
-      if (makePlan && !plan.title.trim()) throw new Error("Enter a plan title, or untick “Create treatment plan now”.");
       if (makePlan && planItems.length === 0) throw new Error("Add at least one prescribed treatment (e.g. Traction – Lumbar traction).");
 
       const assessment = {
@@ -66,7 +65,7 @@ function ConsultationForm() {
       let planId: string | null = createdPlanId.current;
       if (makePlan && !planId) {
         const p = await api.post<{ id: string }>("/treatment-plans", {
-          ...clean(plan),
+          ...clean({ ...plan, diagnosis: plan.diagnosis.trim() || a.diagnosis.trim() }),
           patientId: current.patient.id,
           consultationId,
           therapistId: current.therapist.id,
@@ -101,7 +100,7 @@ function ConsultationForm() {
 
       <div className="card mb-6 grid gap-4 md:grid-cols-2">
         <h2 className="font-bold md:col-span-2">Consultation</h2>
-        <Field label="Chief complaint *"><input className="input" required value={c.chiefComplaint} onChange={(e) => setC({ ...c, chiefComplaint: e.target.value })} /></Field>
+        <Field label="Chief complaint"><input className="input" value={c.chiefComplaint} onChange={(e) => setC({ ...c, chiefComplaint: e.target.value })} /></Field>
         <Field label="Symptoms"><input className="input" value={c.symptoms} onChange={(e) => setC({ ...c, symptoms: e.target.value })} /></Field>
         <Field label="History of present illness"><textarea className="input" rows={2} value={c.historyOfIllness} onChange={(e) => setC({ ...c, historyOfIllness: e.target.value })} /></Field>
         <Field label="Clinical impression"><textarea className="input" rows={2} value={c.clinicalImpression} onChange={(e) => setC({ ...c, clinicalImpression: e.target.value })} /></Field>
@@ -143,14 +142,19 @@ function ConsultationForm() {
           ))}
           <button type="button" className="text-sm font-semibold text-gold-700" onClick={() => setTests([...tests, { name: "", result: "" }])}>+ Add test</button>
         </div>
+        <div className="md:col-span-3">
+          <Field label="Diagnosis">
+            <textarea className="input" rows={2} placeholder="Your diagnosis after the assessment (also used for the treatment plan)" value={a.diagnosis} onChange={(e) => setA({ ...a, diagnosis: e.target.value })} />
+          </Field>
+        </div>
       </div>
 
       <div className="card mb-6">
         <label className="mb-4 flex items-center gap-2 font-bold"><input type="checkbox" checked={makePlan} onChange={(e) => setMakePlan(e.target.checked)} /> Create treatment plan now</label>
         {makePlan && (
           <div className="grid gap-4 md:grid-cols-3">
-            <Field label="Plan title *"><input className="input" required={makePlan} value={plan.title} onChange={(e) => setPlan({ ...plan, title: e.target.value })} /></Field>
-            <Field label="Diagnosis"><input className="input" value={plan.diagnosis} onChange={(e) => setPlan({ ...plan, diagnosis: e.target.value })} /></Field>
+            <Field label="Plan title"><input className="input" placeholder="Optional — defaults to the diagnosis" value={plan.title} onChange={(e) => setPlan({ ...plan, title: e.target.value })} /></Field>
+            <Field label="Plan diagnosis"><input className="input" placeholder={a.diagnosis.trim() || "Same as assessment"} value={plan.diagnosis} onChange={(e) => setPlan({ ...plan, diagnosis: e.target.value })} /></Field>
             <Field label="Goals"><input className="input" value={plan.goals} onChange={(e) => setPlan({ ...plan, goals: e.target.value })} /></Field>
             <Field label="Prescribed sessions"><input className="input" type="number" min={1} value={plan.prescribedSessions} onChange={(e) => setPlan({ ...plan, prescribedSessions: Number(e.target.value) })} /></Field>
             <Field label="Sessions per week"><input className="input" type="number" min={1} value={plan.frequencyPerWeek} onChange={(e) => setPlan({ ...plan, frequencyPerWeek: Number(e.target.value) })} /></Field>

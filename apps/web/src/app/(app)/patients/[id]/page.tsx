@@ -9,13 +9,14 @@ import { ConfirmDelete, Empty, ErrorText, Field, Modal, PageHeader, Spinner, Sta
 import { PlanForm } from "@/components/plan-form";
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
-import { date, dateTime, fullName, inr, label } from "@/lib/format";
+import { ageFrom, date, dateTime, fullName, inr, label } from "@/lib/format";
 import type { PackageDef } from "@/lib/types";
 import { refresh } from "@/lib/invalidate";
 
 interface PatientDetail {
   id: string; patientCode: string; firstName: string; lastName: string | null; gender: string; dateOfBirth: string | null; phone: string; email: string | null;
   emergencyName: string | null; emergencyPhone: string | null; referredBy: string | null; consentGiven: boolean;
+  primaryTherapist: { id: string; user: { name: string } } | null;
   addresses: { id: string; label: string; line1: string; city: string; pincode: string }[];
   medicalHistory: { id: string; condition: string; details: string | null; isOngoing: boolean; medications: string | null; allergies: string | null }[];
   packages: { id: string; status: string; remainingSessions: number; totalSessions: number; expiryDate: string; package: { name: string } }[];
@@ -50,12 +51,18 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
     onSuccess: () => { refresh(qc, "appointments"); setDeletingAppt(null); },
   });
   const p = useQuery({ queryKey: ["patient", id], queryFn: () => api.get<PatientDetail>(`/patients/${id}`) });
+  const canAssign = hasRole(user, "RECEPTIONIST", "ADMIN");
+  const therapists = useQuery({ queryKey: ["therapists"], queryFn: () => api.get<{ id: string; user: { name: string } }[]>("/therapists"), enabled: canAssign });
+  const assign = useMutation({
+    mutationFn: (therapistId: string) => api.patch(`/patients/${id}`, { primaryTherapistId: therapistId || null }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["patient", id] }); qc.invalidateQueries({ queryKey: ["patients"] }); },
+  });
   const progress = useQuery({ queryKey: ["progress", id], queryFn: () => api.get<Progress>(`/patients/${id}/progress`), enabled: hasRole(user, "PHYSIOTHERAPIST", "ADMIN") });
 
   if (p.isLoading) return <Spinner />;
   if (!p.data) return <ErrorText error={p.error} />;
   const d = p.data;
-  const age = d.dateOfBirth ? Math.floor((Date.now() - new Date(d.dateOfBirth).getTime()) / 31_557_600_000) : null;
+  const age = ageFrom(d.dateOfBirth);
 
   return (
     <>
@@ -101,8 +108,20 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="card space-y-2 text-sm">
           <h2 className="mb-2 font-bold">Details</h2>
+          <div className="flex items-center gap-2">
+            <span className="text-navy-500">Regular physio:</span>
+            {canAssign ? (
+              <select className="input w-auto py-1 text-sm" value={d.primaryTherapist?.id ?? ""} disabled={assign.isPending} onChange={(e) => assign.mutate(e.target.value)}>
+                <option value="">None</option>
+                {therapists.data?.map((t) => <option key={t.id} value={t.id}>{t.user.name}</option>)}
+              </select>
+            ) : (
+              d.primaryTherapist?.user.name ?? "—"
+            )}
+          </div>
+          <ErrorText error={assign.error} />
           <div><span className="text-navy-500">Email:</span> {d.email ?? "—"}</div>
-          <div><span className="text-navy-500">Date of birth:</span> {date(d.dateOfBirth)}</div>
+          <div><span className="text-navy-500">Date of birth:</span> {date(d.dateOfBirth)}{age !== null ? ` (${age} yrs)` : ""}</div>
           <div><span className="text-navy-500">Emergency:</span> {d.emergencyName ? `${d.emergencyName} (${d.emergencyPhone})` : "—"}</div>
           <div><span className="text-navy-500">Referred by:</span> {d.referredBy ?? "—"}</div>
           <div><span className="text-navy-500">Consent:</span> {d.consentGiven ? "Given" : <span className="text-rose-600">Not recorded</span>}</div>

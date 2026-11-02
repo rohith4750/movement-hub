@@ -33,12 +33,12 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.navy700,
-        tabBarInactiveTintColor: "#8A90B8",
-        tabBarActiveBackgroundColor: colors.gold100,
-        tabBarLabelStyle: { fontFamily: fonts.semibold, fontSize: 11 },
-        tabBarStyle: { backgroundColor: colors.white, borderTopColor: colors.navy50 },
-        tabBarItemStyle: { borderRadius: 12, marginHorizontal: 3, marginVertical: 4 },
+        tabBarActiveTintColor: colors.gold300,
+        tabBarInactiveTintColor: "#8E95C0",
+        tabBarActiveBackgroundColor: "rgba(229,198,127,0.10)",
+        tabBarLabelStyle: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.2 },
+        tabBarStyle: { backgroundColor: colors.navy900, borderTopWidth: 0, paddingTop: 6, elevation: 12, shadowColor: "#050A24", shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: -2 } },
+        tabBarItemStyle: { borderRadius: 12, marginHorizontal: 4, marginBottom: 2 },
       }}
     >
       <Tabs.Screen name="index" options={{ title: "Today", tabBarIcon: TodayIcon }} />

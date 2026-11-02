@@ -18,12 +18,12 @@ type AppointmentDetail = Appointment & {
 
 interface Consultation {
   id: string;
-  chiefComplaint: string;
+  chiefComplaint: string | null;
   symptoms: string | null;
   historyOfIllness: string | null;
   clinicalImpression: string | null;
   recommendations: string | null;
-  assessment: { painScore: number; painLocation: string | null; observations: string | null } | null;
+  assessment: { painScore: number; painLocation: string | null; observations: string | null; diagnosis: string | null } | null;
 }
 
 const TYPES = ["INITIAL_CONSULTATION", "FOLLOW_UP_CONSULTATION", "THERAPY_SESSION", "HOME_VISIT"];
@@ -69,12 +69,12 @@ export default function AppointmentPage({ params }: { params: Promise<{ id: stri
   });
 
   /* ── consultation edit form ── */
-  const [c, setC] = useState({ chiefComplaint: "", symptoms: "", historyOfIllness: "", clinicalImpression: "", recommendations: "", painScore: 0, painLocation: "", observations: "" });
+  const [c, setC] = useState({ chiefComplaint: "", symptoms: "", historyOfIllness: "", clinicalImpression: "", recommendations: "", painScore: 0, painLocation: "", observations: "", diagnosis: "" });
   useEffect(() => {
     const d = consult.data;
     if (d)
       setC({
-        chiefComplaint: d.chiefComplaint,
+        chiefComplaint: d.chiefComplaint ?? "",
         symptoms: d.symptoms ?? "",
         historyOfIllness: d.historyOfIllness ?? "",
         clinicalImpression: d.clinicalImpression ?? "",
@@ -82,19 +82,20 @@ export default function AppointmentPage({ params }: { params: Promise<{ id: stri
         painScore: d.assessment?.painScore ?? 0,
         painLocation: d.assessment?.painLocation ?? "",
         observations: d.assessment?.observations ?? "",
+        diagnosis: d.assessment?.diagnosis ?? "",
       });
   }, [consult.data]);
   const saveConsult = useMutation({
     mutationFn: async () => {
       const cid = a!.consultation!.id;
       await api.patch(`/consultations/${cid}`, {
-        chiefComplaint: c.chiefComplaint,
+        chiefComplaint: c.chiefComplaint.trim() || undefined,
         symptoms: c.symptoms || undefined,
         historyOfIllness: c.historyOfIllness || undefined,
         clinicalImpression: c.clinicalImpression || undefined,
         recommendations: c.recommendations || undefined,
       });
-      await api.put(`/consultations/${cid}/assessment`, { painScore: Number(c.painScore), painLocation: c.painLocation || undefined, observations: c.observations || undefined });
+      await api.put(`/consultations/${cid}/assessment`, { painScore: Number(c.painScore), painLocation: c.painLocation || undefined, observations: c.observations || undefined, diagnosis: c.diagnosis.trim() || undefined });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["consultation"] }),
   });
@@ -204,7 +205,7 @@ export default function AppointmentPage({ params }: { params: Promise<{ id: stri
             {consult.isLoading ? <Spinner /> : (
               <>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="Chief complaint *"><input className="input" value={c.chiefComplaint} onChange={(e) => setC({ ...c, chiefComplaint: e.target.value })} /></Field>
+                  <Field label="Chief complaint"><input className="input" value={c.chiefComplaint} onChange={(e) => setC({ ...c, chiefComplaint: e.target.value })} /></Field>
                   <Field label="Symptoms"><input className="input" value={c.symptoms} onChange={(e) => setC({ ...c, symptoms: e.target.value })} /></Field>
                   <Field label="History of present illness"><textarea className="input" rows={2} value={c.historyOfIllness} onChange={(e) => setC({ ...c, historyOfIllness: e.target.value })} /></Field>
                   <Field label="Clinical impression"><textarea className="input" rows={2} value={c.clinicalImpression} onChange={(e) => setC({ ...c, clinicalImpression: e.target.value })} /></Field>
@@ -212,11 +213,14 @@ export default function AppointmentPage({ params }: { params: Promise<{ id: stri
                   <Field label="Observations"><textarea className="input" rows={2} value={c.observations} onChange={(e) => setC({ ...c, observations: e.target.value })} /></Field>
                   <Field label={`Pain score: ${c.painScore}/10`}><input type="range" min={0} max={10} className="w-full accent-[#c9a14a]" value={c.painScore} onChange={(e) => setC({ ...c, painScore: Number(e.target.value) })} /></Field>
                   <Field label="Pain location"><input className="input" value={c.painLocation} onChange={(e) => setC({ ...c, painLocation: e.target.value })} /></Field>
+                  <div className="md:col-span-2">
+                    <Field label="Diagnosis"><textarea className="input" rows={2} value={c.diagnosis} onChange={(e) => setC({ ...c, diagnosis: e.target.value })} /></Field>
+                  </div>
                 </div>
                 <ErrorText error={saveConsult.error} />
                 <div className="flex items-center justify-end gap-3">
                   {saveConsult.isSuccess && <span className="text-sm text-emerald-700">Saved ✓</span>}
-                  <button className="btn-primary" disabled={c.chiefComplaint.trim().length < 2 || saveConsult.isPending} onClick={() => saveConsult.mutate()}><Save size={16} /> Save consultation</button>
+                  <button className="btn-primary" disabled={saveConsult.isPending} onClick={() => saveConsult.mutate()}><Save size={16} /> Save consultation</button>
                 </div>
               </>
             )}

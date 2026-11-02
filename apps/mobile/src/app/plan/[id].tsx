@@ -1,30 +1,36 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
+import { DailyProgressCard } from "@/components/daily-progress";
 import { goBack, Sheet, StatTile } from "@/components/form";
-import { Badge, Button, Card, ErrorBox, Field, H2, Input, KeyValue, Loading, Muted, ProgressBar, Row, Screen, Text, TopBar } from "@/components/ui";
+import { Badge, Button, Card, Chips, ErrorBox, Field, H2, Input, KeyValue, Loading, Muted, ProgressBar, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
 import { date, fullName } from "@/lib/format";
-import type { PlanDetail } from "@/lib/types";
+import { OUTCOME_LABEL, type PlanDetail, type TreatmentOutcome } from "@/lib/types";
 import { colors, space } from "@/theme";
 
 type Detail = PlanDetail & {
   patient: { id: string; patientCode: string; firstName: string; lastName: string | null };
   patientPackages: { id: string; remainingSessions: number; status: string; expiryDate: string }[];
-  consultation: { chiefComplaint: string; clinicalImpression: string | null; assessment: { painScore: number; painLocation: string | null } | null } | null;
+  consultation: { chiefComplaint: string | null; clinicalImpression: string | null; assessment: { painScore: number; painLocation: string | null; diagnosis?: string | null } | null } | null;
 };
 
 export default function PlanScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, complete: openComplete } = useLocalSearchParams<{ id: string; complete?: string }>();
   const qc = useQueryClient();
   const user = useAuth((s) => s.user);
   const q = useQuery({ queryKey: ["plan", id], queryFn: () => api.get<Detail>(`/treatment-plans/${id}`), enabled: !!id });
   const p = q.data;
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [outcome, setOutcome] = useState<TreatmentOutcome>("GOALS_MET");
+  const [finalPain, setFinalPain] = useState("");
+  const [summary, setSummary] = useState("");
+  const [homeProgram, setHomeProgram] = useState("");
 
   // Same rules as the API: the whole physio team (and the Super Admin) manages plans.
   const canManage = hasRole(user, "PHYSIOTHERAPIST", "ADMIN");
@@ -42,12 +48,48 @@ export default function PlanScreen() {
   };
 
   const act = useMutation({
-    mutationFn: async (action: "activate" | "complete") => {
-      if (action === "complete" && !(await confirm("Mark plan complete?", "Use this when the treatment is finished. The plan can't be edited afterwards.", "Complete"))) return null;
-      return api.post(`/treatment-plans/${id}/${action}`);
-    },
+    mutationFn: (action: "activate") => api.post(`/treatment-plans/${id}/${action}`),
     onSuccess: refresh,
   });
+
+  const booked = p?.progress.bookedVisits ?? 0;
+  const painOk = finalPain === "" || Number(finalPain) <= 10;
+  const complete = useMutation({
+    mutationFn: () =>
+      api.post(`/treatment-plans/${id}/complete`, {
+        outcome,
+        finalPainScore: finalPain === "" ? undefined : Number(finalPain),
+        dischargeSummary: summary.trim() || undefined,
+        homeProgram: homeProgram.trim() || undefined,
+        cancelUpcoming: booked > 0,
+      }),
+    onSuccess: () => {
+      refresh();
+      qc.invalidateQueries({ queryKey: ["appointments"] });
+      qc.invalidateQueries({ queryKey: ["sessions"] });
+      setCompleteOpen(false);
+    },
+  });
+
+  const openDischarge = () => {
+    if (!p) return;
+    complete.reset();
+    setOutcome(p.progress.completedSessions < p.prescribedSessions ? "PARTIALLY_MET" : "GOALS_MET");
+    setFinalPain(p.progress.latestPain != null ? String(p.progress.latestPain) : "");
+    setSummary("");
+    setHomeProgram("");
+    setCompleteOpen(true);
+  };
+
+  // Opened from "All sessions done" after the last session: go straight to the discharge form.
+  const [autoOpened, setAutoOpened] = useState(false);
+  useEffect(() => {
+    if (openComplete === "1" && !autoOpened && p?.status === "ACTIVE" && canManage) {
+      setAutoOpened(true);
+      openDischarge();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openComplete, autoOpened, p?.status, canManage]);
   const remove = useMutation({
     mutationFn: async () => {
       const nothingDone = p && p.progress.completedSessions === 0 && p.progress.upcomingSessions === 0;
@@ -107,12 +149,43 @@ export default function PlanScreen() {
             <StatTile label="Package left" value={p.patientPackages.find((x) => x.status === "ACTIVE")?.remainingSessions ?? "—"} />
           </View>
 
+          {canComplete && p.progress.readyToComplete ? (
+            <Card gold>
+              <Text weight="semibold" style={{ color: colors.navy900 }}>All {p.prescribedSessions} prescribed sessions are done</Text>
+              <Muted>Record the outcome and complete the treatment.</Muted>
+              <Button title="Complete treatment" variant="gold" icon="checkmark-done-outline" onPress={openDischarge} />
+            </Card>
+          ) : null}
+
+          {p.status === "COMPLETED" && p.outcome ? (
+            <Card>
+              <H2>Discharge summary</H2>
+              <KeyValue k="Outcome" v={OUTCOME_LABEL[p.outcome]} />
+              {p.completedAt ? <KeyValue k="Completed" v={date(p.completedAt)} /> : null}
+              {p.finalPainScore != null ? (
+                <KeyValue k="Pain" v={`${p.consultation?.assessment ? `${p.consultation.assessment.painScore}/10 → ` : ""}${p.finalPainScore}/10`} />
+              ) : null}
+              {p.dischargeSummary ? (
+                <View style={{ marginTop: space.xs }}>
+                  <Muted>Summary</Muted>
+                  <Text>{p.dischargeSummary}</Text>
+                </View>
+              ) : null}
+              {p.homeProgram ? (
+                <View style={{ marginTop: space.xs }}>
+                  <Muted>Home program</Muted>
+                  <Text>{p.homeProgram}</Text>
+                </View>
+              ) : null}
+            </Card>
+          ) : null}
+
           {canEdit || canActivate || canComplete || canCancel || canDelete ? (
             <View style={{ gap: space.sm }}>
               <ErrorBox error={act.error ?? remove.error} />
               {canEdit ? <Button title="Edit plan" variant="ghost" icon="create-outline" onPress={() => router.push({ pathname: "/plan/edit/[id]", params: { id: p.id } })} /> : null}
               {canActivate ? <Button title="Activate plan" icon="play-circle-outline" onPress={() => act.mutate("activate")} loading={act.isPending} /> : null}
-              {canComplete ? <Button title="Mark complete" variant="gold" icon="checkmark-done-outline" onPress={() => act.mutate("complete")} loading={act.isPending} /> : null}
+              {canComplete ? <Button title="Complete treatment" variant="gold" icon="checkmark-done-outline" onPress={openDischarge} /> : null}
               {canCancel ? <Button title="Cancel plan" variant="danger" icon="close-circle-outline" onPress={() => { cancel.reset(); setCancelOpen(true); }} /> : null}
               {canDelete ? <Button title="Delete plan" variant="danger" icon="trash-outline" onPress={() => remove.mutate()} loading={remove.isPending} /> : null}
             </View>
@@ -120,8 +193,9 @@ export default function PlanScreen() {
 
           <Card>
             <H2>Clinical summary</H2>
-            {p.consultation ? <KeyValue k="Complaint" v={p.consultation.chiefComplaint} /> : null}
+            {p.consultation ? <KeyValue k="Complaint" v={p.consultation.chiefComplaint || "—"} /> : null}
             {p.consultation?.assessment ? <KeyValue k="Initial pain" v={`${p.consultation.assessment.painScore}/10${p.consultation.assessment.painLocation ? ` (${p.consultation.assessment.painLocation})` : ""}`} /> : null}
+            {p.consultation?.assessment?.diagnosis ? <KeyValue k="Assessment diagnosis" v={p.consultation.assessment.diagnosis} /> : null}
             <KeyValue k="Diagnosis" v={p.diagnosis ?? "—"} />
             {p.goals ? (
               <View style={{ marginTop: space.xs }}>
@@ -153,6 +227,8 @@ export default function PlanScreen() {
             )}
           </Card>
 
+          <DailyProgressCard planId={p.id} canRecord={canManage} />
+
           <Card>
             <H2>Sessions</H2>
             {p.therapySessions.length === 0 ? (
@@ -172,6 +248,47 @@ export default function PlanScreen() {
               ))
             )}
           </Card>
+
+          <Sheet
+            open={completeOpen}
+            onClose={() => setCompleteOpen(false)}
+            title="Complete treatment"
+            footer={
+              <Button
+                title={booked > 0 ? `Cancel ${booked} visit${booked === 1 ? "" : "s"} & complete` : "Complete treatment"}
+                variant="gold"
+                icon="checkmark-done-outline"
+                onPress={() => complete.mutate()}
+                disabled={!painOk}
+                loading={complete.isPending}
+              />
+            }
+          >
+            <Muted>
+              {p.progress.completedSessions} of {p.prescribedSessions} prescribed sessions done.
+              {p.progress.completedSessions < p.prescribedSessions ? " The plan will close early." : ""} It can&apos;t be edited afterwards.
+            </Muted>
+            {booked > 0 ? (
+              <Card style={{ backgroundColor: colors.dangerBg }}>
+                <Text weight="semibold" style={{ color: colors.danger }}>
+                  {booked} visit{booked === 1 ? " is" : "s are"} still booked under this plan. Completing will cancel {booked === 1 ? "it" : "them"} and notify the patient.
+                </Text>
+              </Card>
+            ) : null}
+            <Field label="Outcome *">
+              <Chips options={(Object.keys(OUTCOME_LABEL) as TreatmentOutcome[]).map((o) => ({ value: o, label: OUTCOME_LABEL[o] }))} value={outcome} onChange={setOutcome} />
+            </Field>
+            <Field label="Final pain score (0–10)">
+              <Input value={finalPain} onChangeText={(t) => setFinalPain(t.replace(/\D/g, "").slice(0, 2))} keyboardType="number-pad" placeholder="e.g. 2" />
+            </Field>
+            <Field label="Discharge summary">
+              <Input value={summary} onChangeText={setSummary} multiline maxLength={4000} placeholder="Progress made, current function, reason for discharge" />
+            </Field>
+            <Field label="Home exercise program">
+              <Input value={homeProgram} onChangeText={setHomeProgram} multiline maxLength={4000} placeholder="Exercises and advice to continue at home" />
+            </Field>
+            <ErrorBox error={complete.error} />
+          </Sheet>
 
           <Sheet
             open={cancelOpen}

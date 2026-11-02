@@ -154,7 +154,17 @@ therapySessionRouter.post(
       return { session, package: pkg ? { id: pkg.id, remainingSessions: pkg.remainingSessions, status: pkg.status } : null };
     });
     await audit(req, "UPDATE", "TherapySession", s.id, { status: s.status }, { status: "COMPLETED" });
-    ok(res, result);
+
+    // Tell the physio when this was the last prescribed session, so they can complete the treatment.
+    let plan: { id: string; planNo: string; completedSessions: number; prescribedSessions: number; readyToComplete: boolean } | null = null;
+    if (s.treatmentPlanId) {
+      const tp = await prisma.treatmentPlan.findUnique({ where: { id: s.treatmentPlanId }, select: { id: true, planNo: true, status: true, prescribedSessions: true } });
+      if (tp?.status === "ACTIVE") {
+        const done = await prisma.therapySession.count({ where: { treatmentPlanId: tp.id, status: "COMPLETED" } });
+        plan = { id: tp.id, planNo: tp.planNo, completedSessions: done, prescribedSessions: tp.prescribedSessions, readyToComplete: done >= tp.prescribedSessions };
+      }
+    }
+    ok(res, { ...result, plan });
   }),
 );
 

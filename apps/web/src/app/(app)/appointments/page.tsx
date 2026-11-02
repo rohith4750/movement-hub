@@ -73,8 +73,6 @@ export default function AppointmentsPage() {
                       <td><StatusBadge status={a.status} /></td>
                       <td>
                         <div className="flex flex-wrap justify-end gap-1">
-                          {canManage && a.status === "SCHEDULED" && <button className="btn-ghost px-2 py-1 text-xs" onClick={() => act.mutate({ id: a.id, action: "confirm" })}>Confirm</button>}
-                          {canManage && open && <button className="btn-ghost px-2 py-1 text-xs" onClick={() => act.mutate({ id: a.id, action: "check-in" })}>Check in</button>}
                           {hasRole(user, "PHYSIOTHERAPIST") && a.type.includes("CONSULTATION") && !a.consultation && !["CANCELLED", "NO_SHOW", "RESCHEDULED", "COMPLETED"].includes(a.status) && (
                             <Link href={`/consultations/new?appointmentId=${a.id}`} className="btn-gold px-2 py-1 text-xs">Consult</Link>
                           )}

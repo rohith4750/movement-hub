@@ -72,6 +72,19 @@ enum TreatmentPlanStatus {
   CANCELLED
 }
 
+enum ProgressStatus {
+  IMPROVED
+  SAME
+  WORSE
+}
+
+enum TreatmentOutcome {
+  GOALS_MET
+  PARTIALLY_MET
+  NOT_MET
+  DISCONTINUED
+}
+
 enum PackageTier {
   BASIC
   STANDARD
@@ -299,6 +312,8 @@ model Patient {
   emergencyPhone   String?
   occupation       String?
   referredBy       String?
+  /// Regular physiotherapist — bookings default to them, and they see the patient under "My patients".
+  primaryTherapistId String?
   consentGiven     Boolean   @default(false)
   consentAt        DateTime?
   createdAt        DateTime  @default(now())
@@ -307,6 +322,7 @@ model Patient {
 
   user            User?            @relation(fields: [userId], references: [id])
   branch          Branch           @relation(fields: [branchId], references: [id])
+  primaryTherapist Therapist?      @relation("PrimaryTherapist", fields: [primaryTherapistId], references: [id], onDelete: SetNull)
   addresses       PatientAddress[]
   medicalHistory  MedicalHistory[]
   documents       PatientDocument[]
@@ -321,6 +337,7 @@ model Patient {
 
   @@index([phone])
   @@index([branchId])
+  @@index([primaryTherapistId])
 }
 
 model PatientAddress {
@@ -403,6 +420,7 @@ model Therapist {
   therapySessions  TherapySession[]
   homeVisits       HomeVisit[]
   waitlist         Waitlist[]
+  regularPatients Patient[] @relation("PrimaryTherapist")
 }
 
 model Specialization {
@@ -558,7 +576,7 @@ model Consultation {
   patientId        String
   therapistId      String
   isFollowUp       Boolean   @default(false)
-  chiefComplaint   String
+  chiefComplaint   String?
   symptoms         String?
   historyOfIllness String?
   clinicalImpression String?
@@ -590,6 +608,7 @@ model ClinicalAssessment {
   mobilityStatus     String?
   gait               String?
   observations       String?
+  diagnosis          String?  // physio's diagnosis, recorded at the end of the assessment
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -616,6 +635,11 @@ model TreatmentPlan {
   endDate            DateTime?           @db.Date
   activatedAt        DateTime?
   completedAt        DateTime?
+  // Discharge summary, recorded when the plan is completed
+  outcome            TreatmentOutcome?
+  finalPainScore     Int?
+  dischargeSummary   String?
+  homeProgram        String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   deletedAt          DateTime?
@@ -627,8 +651,26 @@ model TreatmentPlan {
   appointments    Appointment[]
   therapySessions TherapySession[]
   patientPackages PatientPackage[]
+  progressEntries TreatmentProgress[]
 
   @@index([patientId, status])
+}
+
+/// One entry per plan per day. Days without an entry carry the last recorded values forward.
+model TreatmentProgress {
+  id              String          @id @default(uuid())
+  treatmentPlanId String
+  date            DateTime        @db.Date
+  painScore       Int?            // 0–10
+  status          ProgressStatus?
+  notes           String?
+  recordedById    String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  treatmentPlan TreatmentPlan @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+
+  @@unique([treatmentPlanId, date])
 }
 
 model TreatmentPlanItem {

@@ -61,9 +61,7 @@ export function PlanForm({ plan, patientId: fixedPatient, onSaved, onCancel }: {
   const minutes = Number(f.sessionMinutes);
   const problem = !patientId
     ? "Choose the patient"
-    : f.title.trim().length < 2
-      ? "Enter a plan title"
-      : !f.therapistId
+    : !f.therapistId
         ? "Choose the physiotherapist"
         : !(sessions >= 1 && sessions <= 200)
           ? "Sessions must be 1–200"
@@ -80,7 +78,7 @@ export function PlanForm({ plan, patientId: fixedPatient, onSaved, onCancel }: {
   const save = useMutation({
     mutationFn: async () => {
       const fields = {
-        title: f.title.trim(),
+        title: f.title.trim() || undefined,
         diagnosis: f.diagnosis.trim() || undefined,
         goals: f.goals.trim() || undefined,
         instructions: f.instructions.trim() || undefined,
@@ -129,7 +127,7 @@ export function PlanForm({ plan, patientId: fixedPatient, onSaved, onCancel }: {
       )}
 
       <div className="grid gap-3 md:grid-cols-2">
-        <Field label="Plan title *"><input className="input" placeholder="e.g. Lower back rehab" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
+        <Field label="Plan title"><input className="input" placeholder="Optional — defaults to the diagnosis" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
         <Field label="Treating physiotherapist *">
           <select className="input" value={f.therapistId} onChange={(e) => setF({ ...f, therapistId: e.target.value })}>
             <option value="">Select</option>

@@ -107,7 +107,7 @@ Server: ${API_URL.replace(/\/api\/v1$/, "")} (is the API running?)` : messageOf(
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.navy700, justifyContent: "space-between", paddingHorizontal: space.xl, paddingVertical: space.lg },
+  screen: { flex: 1, backgroundColor: colors.navy950, justifyContent: "space-between", paddingHorizontal: space.xl, paddingVertical: space.lg },
   top: { alignItems: "center", gap: 6, marginTop: space.lg },
   title: { color: colors.white, fontSize: 22, letterSpacing: 2, marginTop: space.sm },
   subtitle: { color: colors.gold300, fontSize: 11, letterSpacing: 3 },
@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
   pad: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignSelf: "center", width: "100%", maxWidth: 320, rowGap: space.md },
   key: { width: "33.33%", height: 68, alignItems: "center", justifyContent: "center" },
   keyBtn: { borderRadius: radius.pill },
-  keyPressed: { backgroundColor: "rgba(255,255,255,0.12)" },
+  keyPressed: { backgroundColor: "rgba(229,198,127,0.16)" },
   keyText: { color: colors.white, fontSize: 28 },
   help: { color: colors.navy100, fontSize: 12, textAlign: "center" },
 });

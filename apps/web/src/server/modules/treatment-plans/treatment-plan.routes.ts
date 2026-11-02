@@ -4,10 +4,11 @@ import { prisma, type Prisma } from "@movement-hub/database";
 import { created, handler, idParam, meta, ok, paginationQuery, paging, q } from "../../lib/http";
 import { audit } from "../../lib/audit";
 import { nextCode } from "../../lib/codes";
-import { badRequest, forbidden, unprocessable } from "../../lib/http-error";
+import { HttpError, badRequest, forbidden, unprocessable } from "../../lib/http-error";
 import { dateOnly, todayLocal } from "../../lib/time";
 import { assertPatientAccess, authorize, scopePatient } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
+import { cancel as cancelAppointment } from "../appointments/appointment.service";
 
 export const treatmentPlanRouter = Router();
 
@@ -23,7 +24,8 @@ const item = z.object({
 });
 
 const planBody = z.object({
-  title: z.string().min(2),
+  /** Optional — defaults to the diagnosis, or "Treatment plan". */
+  title: z.string().trim().max(500).optional().transform((v) => v || undefined),
   diagnosis: z.string().optional(),
   goals: z.string().optional(),
   prescribedSessions: z.number().int().min(1).max(200),
@@ -41,10 +43,28 @@ const include = {
   patientPackages: { select: { id: true, remainingSessions: true, status: true, expiryDate: true } },
 } satisfies Prisma.TreatmentPlanInclude;
 
-async function progressOf(planId: string, prescribed: number) {
-  const completed = await prisma.therapySession.count({ where: { treatmentPlanId: planId, status: "COMPLETED" } });
-  const upcoming = await prisma.therapySession.count({ where: { treatmentPlanId: planId, status: "SCHEDULED" } });
-  return { completedSessions: completed, upcomingSessions: upcoming, remaining: Math.max(prescribed - completed, 0), percent: Math.round((completed / prescribed) * 100) };
+/** Visits still booked under a plan (not yet started). */
+const BOOKED: ("SCHEDULED" | "CONFIRMED")[] = ["SCHEDULED", "CONFIRMED"];
+/** Visits happening right now — a plan can't be closed under them. */
+const IN_VISIT: ("CHECKED_IN" | "IN_PROGRESS")[] = ["CHECKED_IN", "IN_PROGRESS"];
+
+export async function progressOf(planId: string, prescribed: number) {
+  const [completed, upcoming, bookedVisits, lastDone] = await Promise.all([
+    prisma.therapySession.count({ where: { treatmentPlanId: planId, status: "COMPLETED" } }),
+    prisma.therapySession.count({ where: { treatmentPlanId: planId, status: "SCHEDULED" } }),
+    prisma.appointment.count({ where: { treatmentPlanId: planId, status: { in: [...BOOKED, ...IN_VISIT] } } }),
+    prisma.therapySession.findFirst({ where: { treatmentPlanId: planId, status: "COMPLETED", painAfter: { not: null } }, orderBy: { completedAt: "desc" }, select: { painAfter: true } }),
+  ]);
+  return {
+    completedSessions: completed,
+    upcomingSessions: upcoming,
+    bookedVisits,
+    remaining: Math.max(prescribed - completed, 0),
+    percent: Math.min(100, Math.round((completed / prescribed) * 100)),
+    /** Every prescribed session is done — time to complete the treatment. */
+    readyToComplete: completed >= prescribed,
+    latestPain: lastDone?.painAfter ?? null,
+  };
 }
 
 /**
@@ -108,13 +128,17 @@ treatmentPlanRouter.post(
     if (!patient) throw badRequest("Patient not found");
     if (activate && items.length === 0) throw unprocessable("PLAN_EMPTY", "Add at least one treatment before activating");
     if (data.consultationId) {
-      const c = await prisma.consultation.findUniqueOrThrow({ where: { id: data.consultationId } });
+      const c = await prisma.consultation.findUniqueOrThrow({ where: { id: data.consultationId }, include: { assessment: { select: { diagnosis: true } } } });
       if (c.patientId !== data.patientId) throw badRequest("Consultation belongs to another patient");
+      // The diagnosis recorded at the end of the assessment carries over to the plan.
+      data.diagnosis ||= c.assessment?.diagnosis ?? undefined;
     }
+    const title = data.title || data.diagnosis?.slice(0, 120) || "Treatment plan";
     const plan = await prisma.$transaction(async (tx) =>
       tx.treatmentPlan.create({
         data: {
           ...data,
+          title,
           planNo: await nextCode(tx, "plan"),
           therapistId,
           ...(activate ? { status: "ACTIVE" as const, activatedAt: new Date() } : {}),
@@ -184,16 +208,142 @@ treatmentPlanRouter.post(
   }),
 );
 
+/* ─────────────── Daily progress ─────────────── */
+
+const progressStatus = z.enum(["IMPROVED", "SAME", "WORSE"]);
+const progressBody = z.object({
+  painScore: z.number().int().min(0).max(10).nullable().optional(),
+  status: progressStatus.nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+});
+const MAX_DAYS = 120;
+
+const ymd = (d: Date) => d.toISOString().slice(0, 10);
+const addDaysYmd = (day: string, n: number) => ymd(new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000));
+
+/**
+ * Day-by-day progress for a plan, newest first. A day without an entry carries forward the last
+ * recorded value of each field until a new entry changes it (`carriedForward: true`).
+ */
+treatmentPlanRouter.get(
+  "/:id/progress-log",
+  validate({ params: idParam }),
+  handler(async (req, res) => {
+    const plan = await prisma.treatmentPlan.findFirstOrThrow({
+      where: { id: req.params.id, deletedAt: null },
+      select: { id: true, patientId: true, status: true, startDate: true, activatedAt: true, createdAt: true, completedAt: true, endDate: true },
+    });
+    assertPatientAccess(req, plan.patientId);
+    const entries = await prisma.treatmentProgress.findMany({ where: { treatmentPlanId: plan.id }, orderBy: { date: "asc" } });
+
+    const today = todayLocal();
+    const first = entries[0] ? ymd(entries[0].date) : undefined;
+    let start = plan.startDate ? ymd(plan.startDate) : ymd(plan.activatedAt ?? plan.createdAt);
+    if (first && first < start) start = first;
+    let end = plan.status === "COMPLETED" || plan.status === "CANCELLED" ? (plan.endDate ? ymd(plan.endDate) : plan.completedAt ? ymd(plan.completedAt) : today) : today;
+    if (end > today) end = today;
+    if (addDaysYmd(start, MAX_DAYS) < end) start = addDaysYmd(end, -MAX_DAYS);
+
+    const byDay = new Map(entries.map((e) => [ymd(e.date), e]));
+    // Seed the carried values from entries before the visible window.
+    let painScore: number | null = null;
+    let status: z.infer<typeof progressStatus> | null = null;
+    let notes: string | null = null;
+    let since: string | null = null;
+    for (const e of entries) {
+      if (ymd(e.date) >= start) break;
+      if (e.painScore != null) painScore = e.painScore;
+      if (e.status) status = e.status;
+      if (e.notes) notes = e.notes;
+      since = ymd(e.date);
+    }
+
+    const days: { date: string; painScore: number | null; status: string | null; notes: string | null; carriedForward: boolean; recordedOn: string | null; entryId: string | null }[] = [];
+    for (let d = start; d <= end; d = addDaysYmd(d, 1)) {
+      const e = byDay.get(d);
+      if (e) {
+        if (e.painScore != null) painScore = e.painScore;
+        if (e.status) status = e.status;
+        if (e.notes) notes = e.notes;
+        since = d;
+      }
+      days.push({ date: d, painScore, status, notes, carriedForward: !e && since !== null, recordedOn: since, entryId: e?.id ?? null });
+    }
+    ok(res, { days: days.reverse(), entries: entries.length, editable: plan.status === "ACTIVE" });
+  }),
+);
+
+/** Record (or update) one day's progress. Fields left out keep their previous value for that day. */
+treatmentPlanRouter.put(
+  "/:id/progress-log/:date",
+  authorize("PHYSIOTHERAPIST", "ADMIN"),
+  validate({ params: idParam.extend({ date }), body: progressBody }),
+  handler(async (req, res) => {
+    const plan = await editable(req, req.params.id);
+    if (plan.status !== "ACTIVE") throw unprocessable("PLAN_NOT_ACTIVE", "Progress can only be recorded on an active plan");
+    const day = req.params.date as string;
+    if (day > todayLocal()) throw badRequest("Progress can't be recorded for a future date", "FUTURE_DATE");
+    const body = req.body as z.infer<typeof progressBody>;
+    if (body.painScore == null && !body.status && !body.notes?.trim()) throw badRequest("Enter pain, status or a note", "EMPTY_PROGRESS");
+    const data = { painScore: body.painScore ?? null, status: body.status ?? null, notes: body.notes?.trim() || null, recordedById: req.user!.id };
+    const entry = await prisma.treatmentProgress.upsert({
+      where: { treatmentPlanId_date: { treatmentPlanId: plan.id, date: dateOnly(day) } },
+      create: { treatmentPlanId: plan.id, date: dateOnly(day), ...data },
+      update: data,
+    });
+    await audit(req, "UPDATE", "TreatmentProgress", entry.id, null, entry);
+    ok(res, entry);
+  }),
+);
+
+const completeBody = z.object({
+  outcome: z.enum(["GOALS_MET", "PARTIALLY_MET", "NOT_MET", "DISCONTINUED"]),
+  finalPainScore: z.number().int().min(0).max(10).optional(),
+  dischargeSummary: z.string().trim().max(4000).optional(),
+  homeProgram: z.string().trim().max(4000).optional(),
+  /** Cancel visits still booked under this plan (frees the slots). Without it, booked visits block completion. */
+  cancelUpcoming: z.boolean().default(false),
+});
+
+/**
+ * Complete the treatment: records the discharge summary and closes the plan.
+ * Booked visits under the plan must be cancelled — either beforehand, or here with `cancelUpcoming`.
+ */
 treatmentPlanRouter.post(
   "/:id/complete",
   authorize("PHYSIOTHERAPIST", "ADMIN"),
-  validate({ params: idParam }),
+  validate({ params: idParam, body: completeBody }),
   handler(async (req, res) => {
     const plan = await editable(req, req.params.id);
     if (plan.status !== "ACTIVE") throw unprocessable("INVALID_STATUS", `Plan is ${plan.status}`);
-    const updated = await prisma.treatmentPlan.update({ where: { id: plan.id }, data: { status: "COMPLETED", completedAt: new Date(), endDate: dateOnly(todayLocal()) }, include });
-    await audit(req, "UPDATE", "TreatmentPlan", plan.id, { status: plan.status }, { status: "COMPLETED" });
-    ok(res, updated);
+    const { cancelUpcoming, ...discharge } = req.body as z.infer<typeof completeBody>;
+
+    const [inVisit, booked] = await Promise.all([
+      prisma.appointment.count({ where: { treatmentPlanId: plan.id, status: { in: IN_VISIT } } }),
+      prisma.appointment.findMany({ where: { treatmentPlanId: plan.id, status: { in: BOOKED } }, select: { id: true, appointmentNo: true, startAt: true }, orderBy: { startAt: "asc" } }),
+    ]);
+    if (inVisit > 0) throw unprocessable("VISIT_IN_PROGRESS", "A visit under this plan is in progress. Finish it before completing the treatment.");
+    if (booked.length && !cancelUpcoming) {
+      throw new HttpError(409, "PLAN_HAS_UPCOMING", `${booked.length} visit(s) are still booked under this plan. Cancel them to complete the treatment.`, { count: booked.length, appointments: booked });
+    }
+    for (const a of booked) await cancelAppointment(a.id, req.user!.id, "Treatment plan completed", { enforceWindow: false });
+
+    const finalPainScore = discharge.finalPainScore ?? (await progressOf(plan.id, plan.prescribedSessions)).latestPain ?? undefined;
+    const updated = await prisma.treatmentPlan.update({
+      where: { id: plan.id },
+      data: {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        endDate: dateOnly(todayLocal()),
+        outcome: discharge.outcome,
+        finalPainScore,
+        dischargeSummary: discharge.dischargeSummary || undefined,
+        homeProgram: discharge.homeProgram || undefined,
+      },
+      include,
+    });
+    await audit(req, "UPDATE", "TreatmentPlan", plan.id, { status: plan.status }, { status: "COMPLETED", outcome: discharge.outcome, finalPainScore, cancelledVisits: booked.map((a) => a.appointmentNo) });
+    ok(res, { ...updated, cancelledVisits: booked.length });
   }),
 );
 

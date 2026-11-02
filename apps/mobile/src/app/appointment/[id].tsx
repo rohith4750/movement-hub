@@ -16,12 +16,12 @@ type Detail = Appointment & { history: { id: string; toStatus: string; fromStatu
 
 interface Consultation {
   id: string;
-  chiefComplaint: string;
+  chiefComplaint: string | null;
   symptoms: string | null;
   historyOfIllness: string | null;
   clinicalImpression: string | null;
   recommendations: string | null;
-  assessment: { painScore: number; painLocation: string | null; observations: string | null } | null;
+  assessment: { painScore: number; painLocation: string | null; observations: string | null; diagnosis?: string | null } | null;
 }
 
 interface PlanOption {
@@ -142,12 +142,12 @@ export default function AppointmentDetail() {
     enabled: !!a?.consultation && canClinical,
   });
   const [consultOpen, setConsultOpen] = useState(false);
-  const [c, setC] = useState({ chiefComplaint: "", symptoms: "", historyOfIllness: "", clinicalImpression: "", recommendations: "", observations: "", painScore: 0, painLocation: "" });
+  const [c, setC] = useState({ chiefComplaint: "", symptoms: "", historyOfIllness: "", clinicalImpression: "", recommendations: "", observations: "", painScore: 0, painLocation: "", diagnosis: "" });
   const openConsult = () => {
     const d = consult.data;
     if (!d) return;
     setC({
-      chiefComplaint: d.chiefComplaint,
+      chiefComplaint: d.chiefComplaint ?? "",
       symptoms: d.symptoms ?? "",
       historyOfIllness: d.historyOfIllness ?? "",
       clinicalImpression: d.clinicalImpression ?? "",
@@ -155,6 +155,7 @@ export default function AppointmentDetail() {
       observations: d.assessment?.observations ?? "",
       painScore: d.assessment?.painScore ?? 0,
       painLocation: d.assessment?.painLocation ?? "",
+      diagnosis: d.assessment?.diagnosis ?? "",
     });
     saveConsult.reset();
     setConsultOpen(true);
@@ -163,7 +164,7 @@ export default function AppointmentDetail() {
     mutationFn: async () => {
       const cid = a!.consultation!.id;
       await api.patch(`/consultations/${cid}`, {
-        chiefComplaint: c.chiefComplaint.trim(),
+        chiefComplaint: c.chiefComplaint.trim() || undefined,
         symptoms: c.symptoms.trim() || undefined,
         historyOfIllness: c.historyOfIllness.trim() || undefined,
         clinicalImpression: c.clinicalImpression.trim() || undefined,
@@ -173,6 +174,7 @@ export default function AppointmentDetail() {
         painScore: c.painScore,
         painLocation: c.painLocation.trim() || undefined,
         observations: c.observations.trim() || undefined,
+        diagnosis: c.diagnosis.trim() || undefined,
       });
     },
     onSuccess: () => {
@@ -273,13 +275,14 @@ export default function AppointmentDetail() {
                 <ErrorBox error={consult.error} onRetry={() => consult.refetch()} />
               ) : consult.data ? (
                 <>
-                  <KeyValue k="Complaint" v={consult.data.chiefComplaint} />
+                  <KeyValue k="Complaint" v={consult.data.chiefComplaint || "—"} />
                   {consult.data.assessment ? <KeyValue k="Pain" v={`${consult.data.assessment.painScore}/10${consult.data.assessment.painLocation ? ` · ${consult.data.assessment.painLocation}` : ""}`} /> : null}
                   {consult.data.symptoms ? <NoteLine k="Symptoms" v={consult.data.symptoms} /> : null}
                   {consult.data.historyOfIllness ? <NoteLine k="History" v={consult.data.historyOfIllness} /> : null}
                   {consult.data.clinicalImpression ? <NoteLine k="Impression" v={consult.data.clinicalImpression} /> : null}
                   {consult.data.recommendations ? <NoteLine k="Recommendations" v={consult.data.recommendations} /> : null}
                   {consult.data.assessment?.observations ? <NoteLine k="Observations" v={consult.data.assessment.observations} /> : null}
+                  {consult.data.assessment?.diagnosis ? <NoteLine k="Diagnosis" v={consult.data.assessment.diagnosis} /> : null}
                 </>
               ) : null}
             </Card>
@@ -289,10 +292,6 @@ export default function AppointmentDetail() {
           {isFrontDesk && open ? (
             !cancelling ? (
               <View style={{ gap: space.sm }}>
-                <Row>
-                  {a.status === "SCHEDULED" ? <Button title="Confirm" icon="checkmark-circle-outline" onPress={() => act.mutate("confirm")} loading={act.isPending} style={{ flex: 1 }} /> : null}
-                  <Button title="Check in" variant="gold" icon="enter-outline" onPress={() => act.mutate("check-in")} loading={act.isPending} style={{ flex: 1 }} />
-                </Row>
                 <Row>
                   <Button title="Reschedule" variant="ghost" icon="calendar-outline" onPress={() => router.push({ pathname: "/book", params: { reschedule: a.id } })} style={{ flex: 1 }} />
                   <Button title="No-show" variant="ghost" icon="person-remove-outline" onPress={() => act.mutate("no-show")} style={{ flex: 1 }} />
@@ -386,9 +385,9 @@ export default function AppointmentDetail() {
             open={consultOpen}
             onClose={() => setConsultOpen(false)}
             title="Consultation notes"
-            footer={<Button title="Save consultation" icon="save-outline" onPress={() => saveConsult.mutate()} loading={saveConsult.isPending} disabled={c.chiefComplaint.trim().length < 2} />}
+            footer={<Button title="Save consultation" icon="save-outline" onPress={() => saveConsult.mutate()} loading={saveConsult.isPending} />}
           >
-            <Field label="Chief complaint *"><Input value={c.chiefComplaint} onChangeText={(t) => setC({ ...c, chiefComplaint: t })} /></Field>
+            <Field label="Chief complaint"><Input value={c.chiefComplaint} onChangeText={(t) => setC({ ...c, chiefComplaint: t })} /></Field>
             <Field label="Symptoms"><Input value={c.symptoms} onChangeText={(t) => setC({ ...c, symptoms: t })} multiline /></Field>
             <Field label="History of present illness"><Input value={c.historyOfIllness} onChangeText={(t) => setC({ ...c, historyOfIllness: t })} multiline /></Field>
             <Field label="Clinical impression"><Input value={c.clinicalImpression} onChangeText={(t) => setC({ ...c, clinicalImpression: t })} multiline /></Field>
@@ -398,6 +397,7 @@ export default function AppointmentDetail() {
               <PainScale value={c.painScore} onChange={(n) => setC({ ...c, painScore: n })} />
             </Field>
             <Field label="Pain location"><Input value={c.painLocation} onChangeText={(t) => setC({ ...c, painLocation: t })} /></Field>
+            <Field label="Diagnosis"><Input value={c.diagnosis} onChangeText={(t) => setC({ ...c, diagnosis: t })} multiline placeholder="e.g. Lumbar disc prolapse L4–L5" /></Field>
             <ErrorBox error={saveConsult.error} />
           </Sheet>
         </>

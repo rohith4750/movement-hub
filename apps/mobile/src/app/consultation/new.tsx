@@ -56,6 +56,7 @@ function ConsultationForm({ appt }: { appt: Appointment }) {
   const [c, setC] = useState({ chiefComplaint: "", symptoms: "", historyOfIllness: "", clinicalImpression: "", recommendations: "", followUpDate: "" });
   const [a, setA] = useState({ painLocation: "", painType: "", aggravatingFactors: "", relievingFactors: "", posture: "", mobilityStatus: "", gait: "", observations: "" });
   const [pain, setPain] = useState(5);
+  const [diagnosis, setDiagnosis] = useState("");
   const [rom, setRom] = useState<Pair[]>([]);
   const [tests, setTests] = useState<Pair[]>([]);
   const [makePlan, setMakePlan] = useState(true);
@@ -75,6 +76,7 @@ function ConsultationForm({ appt }: { appt: Appointment }) {
         painScore: pain,
         rangeOfMotion: rom.some((r) => r.a.trim()) ? Object.fromEntries(rom.filter((r) => r.a.trim()).map((r) => [r.a.trim(), r.b.trim()])) : undefined,
         specialTests: tests.some((t) => t.a.trim()) ? tests.filter((t) => t.a.trim()).map((t) => ({ name: t.a.trim(), result: t.b.trim() })) : undefined,
+        diagnosis: diagnosis.trim() || undefined,
       };
 
       // 1. Consultation — create, or update if an earlier attempt already saved it.
@@ -91,7 +93,8 @@ function ConsultationForm({ appt }: { appt: Appointment }) {
       let planId = createdPlanId.current;
       if (makePlan && !planId) {
         const p = await api.post<{ id: string }>("/treatment-plans", {
-          ...planBody(plan, items),
+          // Plan diagnosis defaults to the assessment's diagnosis when left empty.
+          ...planBody({ ...plan, diagnosis: plan.diagnosis.trim() || diagnosis }, items),
           patientId: current.patient.id,
           consultationId,
           therapistId: current.therapist.id,
@@ -121,9 +124,7 @@ function ConsultationForm({ appt }: { appt: Appointment }) {
       ? "This appointment is not a consultation."
       : closed
         ? `This appointment is ${label(appt.status).toLowerCase()}.`
-        : c.chiefComplaint.trim().length < 2
-          ? "Enter the chief complaint"
-          : makePlan
+        : makePlan
             ? planProblem(plan, items)
             : null;
 
@@ -138,7 +139,7 @@ function ConsultationForm({ appt }: { appt: Appointment }) {
 
       <Card style={{ gap: space.md }}>
         <SectionTitle>Consultation</SectionTitle>
-        <Field label="Chief complaint *"><Input value={c.chiefComplaint} onChangeText={setCF("chiefComplaint")} placeholder="e.g. Low back pain for 3 weeks" /></Field>
+        <Field label="Chief complaint"><Input value={c.chiefComplaint} onChangeText={setCF("chiefComplaint")} placeholder="e.g. Low back pain for 3 weeks" /></Field>
         <Field label="Symptoms"><Input value={c.symptoms} onChangeText={setCF("symptoms")} /></Field>
         <Field label="History of present illness"><Input multiline value={c.historyOfIllness} onChangeText={setCF("historyOfIllness")} /></Field>
         <Field label="Clinical impression"><Input multiline value={c.clinicalImpression} onChangeText={setCF("clinicalImpression")} /></Field>
@@ -175,6 +176,13 @@ function ConsultationForm({ appt }: { appt: Appointment }) {
         ) : (
           <Muted style={{ fontSize: 12 }}>You can create the plan later from the patient&apos;s profile.</Muted>
         )}
+      </Card>
+
+      <Card style={{ gap: space.md }}>
+        <SectionTitle>Diagnosis</SectionTitle>
+        <Field label="Diagnosis" hint={makePlan ? "Also used as the plan's diagnosis if that is left empty" : undefined}>
+          <Input multiline value={diagnosis} onChangeText={setDiagnosis} placeholder="e.g. Lumbar disc prolapse L4–L5" />
+        </Field>
       </Card>
 
       <ErrorBox error={save.error} />

@@ -18,7 +18,7 @@ import {
 } from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 import { label as labelOf } from "@/lib/format";
-import { colors, fonts, radius, shadow, space, statusColors } from "@/theme";
+import { colors, fonts, radius, shadow, shadowStrong, space, statusColors } from "@/theme";
 
 /* ───────────────────────── Text ───────────────────────── */
 
@@ -27,11 +27,11 @@ export function Text({ weight = "regular", style, ...p }: TextProps & { weight?:
   return <RNText {...p} style={[styles.text, { fontFamily: fonts[weight] }, style]} />;
 }
 
-export const H1 = (p: TextProps) => <Text weight="bold" {...p} style={[{ fontSize: 24, color: colors.navy700 }, p.style]} />;
-export const H2 = (p: TextProps) => <Text weight="bold" {...p} style={[{ fontSize: 17, color: colors.navy700 }, p.style]} />;
+export const H1 = (p: TextProps) => <Text weight="bold" {...p} style={[{ fontSize: 24, color: colors.navy900, letterSpacing: -0.3 }, p.style]} />;
+export const H2 = (p: TextProps) => <Text weight="bold" {...p} style={[{ fontSize: 17, color: colors.navy900, letterSpacing: -0.2 }, p.style]} />;
 export const Muted = (p: TextProps) => <Text {...p} style={[{ fontSize: 13, color: colors.muted }, p.style]} />;
 export const Caption = (p: TextProps) => (
-  <Text weight="semibold" {...p} style={[{ fontSize: 11, color: colors.navy500, letterSpacing: 0.8, textTransform: "uppercase" }, p.style]} />
+  <Text weight="semibold" {...p} style={[{ fontSize: 11, color: colors.muted, letterSpacing: 0.9, textTransform: "uppercase" }, p.style]} />
 );
 
 /* ───────────────────────── Layout ───────────────────────── */
@@ -69,7 +69,7 @@ export function Screen({
 }
 
 export function Card({ children, style, gold }: { children: ReactNode; style?: StyleProp<ViewStyle>; gold?: boolean }) {
-  return <View style={[styles.card, gold && { borderColor: colors.gold300 }, style]}>{children}</View>;
+  return <View style={[styles.card, gold && styles.cardGold, style]}>{children}</View>;
 }
 
 export function Row({ children, style, gap = space.sm }: { children: ReactNode; style?: StyleProp<ViewStyle>; gap?: number }) {
@@ -90,16 +90,20 @@ export function Logo({ size = 44 }: { size?: number }) {
 export function BrandHeader({ title, subtitle, right }: { title: string; subtitle?: string; right?: ReactNode }) {
   return (
     <View style={styles.brandHeader}>
+      {/* Decorative depth: soft rings in the corner and a gold rule along the bottom */}
+      <View pointerEvents="none" style={styles.ringLarge} />
+      <View pointerEvents="none" style={styles.ringSmall} />
       <Row style={{ justifyContent: "space-between" }}>
         <Row gap={space.md} style={{ flex: 1 }}>
-          <Logo size={42} />
+          <View style={styles.logoRing}><Logo size={40} /></View>
           <View style={{ flex: 1 }}>
-            <Text weight="bold" style={{ color: colors.white, fontSize: 18 }} numberOfLines={1}>{title}</Text>
-            {subtitle ? <Text style={{ color: colors.gold300, fontSize: 12 }} numberOfLines={1}>{subtitle}</Text> : null}
+            <Text weight="bold" style={{ color: colors.white, fontSize: 20, letterSpacing: -0.3 }} numberOfLines={1}>{title}</Text>
+            {subtitle ? <Text weight="medium" style={{ color: colors.gold300, fontSize: 12, marginTop: 2 }} numberOfLines={1}>{subtitle}</Text> : null}
           </View>
         </Row>
         {right}
       </Row>
+      <View pointerEvents="none" style={styles.goldRule} />
     </View>
   );
 }
@@ -109,9 +113,9 @@ export function TopBar({ title, onBack, right }: { title: string; onBack: () => 
   return (
     <Row style={styles.topBar}>
       <Pressable onPress={onBack} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back" style={styles.iconBtn}>
-        <Ionicons name="chevron-back" size={22} color={colors.navy700} />
+        <Ionicons name="chevron-back" size={22} color={colors.navy900} />
       </Pressable>
-      <H2 style={{ flex: 1 }} numberOfLines={1}>{title}</H2>
+      <H2 style={{ flex: 1, fontSize: 19 }} numberOfLines={1}>{title}</H2>
       {right}
     </Row>
   );
@@ -148,9 +152,10 @@ export function Button({
       accessibilityState={{ disabled: !!off, busy: !!loading }}
       style={({ pressed }) => [
         styles.button,
-        small && { paddingVertical: 8, paddingHorizontal: 12 },
+        small && { paddingVertical: 8, paddingHorizontal: 12, minHeight: 36, borderRadius: radius.sm },
         { backgroundColor: v.bg, borderColor: v.border },
-        pressed && !off && { opacity: 0.85 },
+        variant === "primary" && !small && styles.buttonLift,
+        pressed && !off && { opacity: 0.88, transform: [{ scale: 0.99 }] },
         off && { opacity: 0.5 },
         style,
       ]}
@@ -160,7 +165,7 @@ export function Button({
       ) : (
         <Row gap={6} style={{ justifyContent: "center" }}>
           {icon ? <Ionicons name={icon} size={small ? 15 : 18} color={v.fg} /> : null}
-          <Text weight="semibold" style={{ color: v.fg, fontSize: small ? 13 : 15 }}>{title}</Text>
+          <Text weight="semibold" style={{ color: v.fg, fontSize: small ? 13 : 15, letterSpacing: 0.2 }}>{title}</Text>
         </Row>
       )}
     </Pressable>
@@ -168,9 +173,9 @@ export function Button({
 }
 
 const buttonVariants: Record<Variant, { bg: string; fg: string; border: string }> = {
-  primary: { bg: colors.navy700, fg: colors.white, border: colors.navy700 },
-  gold: { bg: colors.gold500, fg: colors.navy900, border: colors.gold500 },
-  ghost: { bg: colors.white, fg: colors.navy700, border: colors.border },
+  primary: { bg: colors.navy800, fg: colors.white, border: colors.navy800 },
+  gold: { bg: colors.gold500, fg: colors.navy950, border: colors.gold500 },
+  ghost: { bg: colors.white, fg: colors.navy800, border: colors.border },
   danger: { bg: colors.white, fg: colors.danger, border: "#FECDD3" },
 };
 
@@ -185,7 +190,7 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 }
 
 export function Input(props: TextInputProps) {
-  return <TextInput placeholderTextColor="#9AA0C3" {...props} style={[styles.input, props.multiline && { minHeight: 84, textAlignVertical: "top" }, props.style]} />;
+  return <TextInput placeholderTextColor="#9AA0BE" selectionColor={colors.navy600} {...props} style={[styles.input, props.multiline && { minHeight: 84, textAlignVertical: "top" }, props.style]} />;
 }
 
 /** Horizontal choice chips (segmented control). */
@@ -200,9 +205,9 @@ export function Chips<T extends string>({ options, value, onChange }: { options:
             onPress={() => onChange(o.value)}
             accessibilityRole="button"
             accessibilityState={{ selected: on }}
-            style={[styles.chip, on && { backgroundColor: colors.gold100, borderColor: colors.gold500 }]}
+            style={[styles.chip, on && { backgroundColor: colors.navy800, borderColor: colors.navy800 }]}
           >
-            <Text weight={on ? "semibold" : "regular"} style={{ fontSize: 13, color: on ? colors.navy900 : colors.navy700 }}>{o.label}</Text>
+            <Text weight={on ? "semibold" : "medium"} style={{ fontSize: 13, color: on ? colors.white : colors.navy800 }}>{o.label}</Text>
           </Pressable>
         );
       })}
@@ -224,7 +229,7 @@ export function Badge({ status, text }: { status: string; text?: string }) {
 export function Loading({ label }: { label?: string }) {
   return (
     <View style={{ padding: space.xl, alignItems: "center", gap: space.sm }}>
-      <ActivityIndicator color={colors.navy700} />
+      <ActivityIndicator color={colors.navy800} />
       {label ? <Muted>{label}</Muted> : null}
     </View>
   );
@@ -250,7 +255,7 @@ export function Empty({ icon = "file-tray-outline", title, message, action }: { 
       <View style={styles.emptyIcon}>
         <Ionicons name={icon} size={26} color={colors.gold700} />
       </View>
-      <Text weight="semibold" style={{ fontSize: 15, color: colors.navy700, textAlign: "center" }}>{title}</Text>
+      <Text weight="semibold" style={{ fontSize: 15, color: colors.navy900, textAlign: "center" }}>{title}</Text>
       {message ? <Muted style={{ textAlign: "center" }}>{message}</Muted> : null}
       {action}
     </View>
@@ -279,11 +284,17 @@ const styles = StyleSheet.create({
   text: { color: colors.text, fontSize: 14 },
   screen: { flex: 1, backgroundColor: colors.bg },
   screenContent: { padding: space.lg, gap: space.lg, paddingBottom: space.xl * 2 },
-  card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, borderWidth: 1, borderColor: colors.navy50, gap: space.sm, ...shadow },
-  brandHeader: { backgroundColor: colors.navy700, borderRadius: radius.lg, padding: space.lg },
-  topBar: { paddingVertical: space.sm, gap: space.sm },
-  iconBtn: { width: 36, height: 36, borderRadius: radius.pill, backgroundColor: colors.white, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border },
-  button: { borderRadius: radius.md, paddingVertical: 13, paddingHorizontal: 18, borderWidth: 1, alignItems: "center", justifyContent: "center", minHeight: 44 },
+  card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, borderWidth: 1, borderColor: colors.border, gap: space.sm, ...shadow },
+  cardGold: { borderColor: colors.gold300, borderTopWidth: 3, borderTopColor: colors.gold500 },
+  brandHeader: { backgroundColor: colors.navy900, borderRadius: radius.xl, padding: space.lg, paddingVertical: 20, overflow: "hidden", ...shadowStrong },
+  ringLarge: { position: "absolute", right: -60, top: -70, width: 190, height: 190, borderRadius: 95, borderWidth: 28, borderColor: "rgba(255,255,255,0.04)" },
+  ringSmall: { position: "absolute", right: 40, bottom: -50, width: 90, height: 90, borderRadius: 45, backgroundColor: "rgba(201,161,74,0.08)" },
+  goldRule: { position: "absolute", left: 0, right: 0, bottom: 0, height: 3, backgroundColor: colors.gold500, opacity: 0.9 },
+  logoRing: { padding: 2, borderRadius: 24, borderWidth: 1.5, borderColor: "rgba(229,198,127,0.55)" },
+  topBar: { paddingVertical: space.sm, gap: space.md },
+  iconBtn: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.white, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border, ...shadow },
+  button: { borderRadius: radius.md, paddingVertical: 13, paddingHorizontal: 18, borderWidth: 1, alignItems: "center", justifyContent: "center", minHeight: 48 },
+  buttonLift: { shadowColor: "#0A1033", shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
   input: {
     backgroundColor: colors.white,
     borderWidth: 1,
@@ -291,12 +302,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    minHeight: 48,
     fontSize: 15,
     color: colors.text,
     fontFamily: fonts.regular,
   },
   chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
-  badge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.pill, alignSelf: "flex-start" },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.sm, alignSelf: "flex-start" },
   errorBox: { backgroundColor: colors.dangerBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: "#FECDD3" },
-  emptyIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.gold100, alignItems: "center", justifyContent: "center" },
+  emptyIcon: { width: 60, height: 60, borderRadius: 18, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center" },
 });

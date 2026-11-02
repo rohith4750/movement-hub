@@ -8,7 +8,7 @@ import { PatientForm } from "@/components/patient-form";
 import { ConfirmDelete, Empty, ErrorText, Modal, PageHeader, Pager, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
-import { date, fullName, label } from "@/lib/format";
+import { ageFrom, date, fullName, label } from "@/lib/format";
 import type { Patient } from "@/lib/types";
 import { refresh } from "@/lib/invalidate";
 
@@ -18,9 +18,12 @@ export default function PatientsPage() {
   const canDelete = hasRole(user, "ADMIN");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  // Physios start on their own regular patients.
+  const isPhysio = user?.role === "PHYSIOTHERAPIST";
+  const [mine, setMine] = useState(isPhysio);
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState<Patient | null>(null);
-  const { data, isLoading, error } = useQuery({ queryKey: ["patients", search, page], queryFn: () => api.page<Patient>("/patients", { search, page }) });
+  const { data, isLoading, error } = useQuery({ queryKey: ["patients", search, page, mine], queryFn: () => api.page<Patient>("/patients", { search, page, mine: isPhysio && mine ? "true" : undefined }) });
   const remove = useMutation({
     mutationFn: (p: Patient) => api.del(`/patients/${p.id}`),
     onSuccess: () => { refresh(qc, "patients"); setDeleting(null); },
@@ -34,18 +37,28 @@ export default function PatientsPage() {
         actions={hasRole(user, "ADMIN", "RECEPTIONIST") && <button className="btn-primary" onClick={() => setOpen(true)}><UserPlus size={16} /> Add patient</button>}
       />
       <div className="card">
-        <input className="input mb-4 max-w-sm" placeholder="Search name, phone or code…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <input className="input max-w-sm" placeholder="Search name, phone or code…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+          {isPhysio && (
+            <div className="flex gap-1">
+              <button className={mine ? "btn-gold" : "btn-ghost"} onClick={() => { setMine(true); setPage(1); }}>My patients</button>
+              <button className={!mine ? "btn-gold" : "btn-ghost"} onClick={() => { setMine(false); setPage(1); }}>All patients</button>
+            </div>
+          )}
+        </div>
         {isLoading ? <Spinner /> : error ? <ErrorText error={error} /> : !data?.data.length ? <Empty>No patients found.</Empty> : (
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Code</th><th>Name</th><th>Gender</th><th>Phone</th><th>Active plan</th><th>Package</th><th>Registered</th><th /></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Gender</th><th>Age</th><th>Phone</th><th>Physio</th><th>Active plan</th><th>Package</th><th>Registered</th><th /></tr></thead>
               <tbody>
                 {data.data.map((p) => (
                   <tr key={p.id} className="hover:bg-navy-50/50">
                     <td className="font-mono text-xs">{p.patientCode}</td>
                     <td><Link href={`/patients/${p.id}`} className="font-semibold text-navy-700 hover:underline">{fullName(p)}</Link></td>
                     <td>{label(p.gender)}</td>
+                    <td>{ageFrom(p.dateOfBirth) ?? "—"}</td>
                     <td>{p.phone}</td>
+                    <td>{p.primaryTherapist ? <><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: p.primaryTherapist.colorTag ?? "#c9a14a" }} />{p.primaryTherapist.user.name}</> : "—"}</td>
                     <td>{p.treatmentPlans?.[0]?.title ?? "—"}</td>
                     <td>{p.packages?.[0] ? `${p.packages[0].remainingSessions} left` : "—"}</td>
                     <td>{date(p.createdAt)}</td>

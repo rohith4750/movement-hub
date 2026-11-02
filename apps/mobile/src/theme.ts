@@ -1,19 +1,22 @@
-/** Movement Hub brand theme — same palette as the web portal. */
+/** Movement Hub brand theme — deep navy + gold, tuned for a crisp, corporate look. */
 export const colors = {
-  navy900: "#10143D",
-  navy700: "#1B2160",
-  navy500: "#2B3483",
-  navy100: "#D9DDF2",
-  navy50: "#EEF0FA",
-  gold700: "#9C7A2F",
+  navy950: "#050A24",
+  navy900: "#0A1033",
+  navy800: "#0E1645",
+  navy700: "#121B57",
+  navy600: "#1C2670",
+  navy500: "#2C378A",
+  navy100: "#DCE0F0",
+  navy50: "#F0F2F9",
+  gold700: "#94702A",
   gold500: "#C9A14A",
-  gold300: "#E3C27A",
-  gold100: "#F6EDD8",
-  bg: "#F6F7FB",
+  gold300: "#E5C67F",
+  gold100: "#F7EFDC",
+  bg: "#F2F4F9",
   white: "#FFFFFF",
-  text: "#10143D",
-  muted: "#5B6290",
-  border: "#D9DDF2",
+  text: "#0A1033",
+  muted: "#5D6487",
+  border: "#E3E6EF",
   danger: "#E11D48",
   dangerBg: "#FFF1F2",
   success: "#047857",
@@ -29,20 +32,29 @@ export const fonts = {
   bold: "Montserrat_700Bold",
 };
 
-export const radius = { sm: 8, md: 12, lg: 16, pill: 999 };
+export const radius = { sm: 8, md: 12, lg: 16, xl: 20, pill: 999 };
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
 
 export const shadow = {
-  shadowColor: "#1B2160",
-  shadowOpacity: 0.08,
-  shadowRadius: 10,
+  shadowColor: "#0A1033",
+  shadowOpacity: 0.06,
+  shadowRadius: 12,
   shadowOffset: { width: 0, height: 4 },
   elevation: 2,
 };
 
+/** Stronger lift for headers and primary surfaces. */
+export const shadowStrong = {
+  shadowColor: "#050A24",
+  shadowOpacity: 0.18,
+  shadowRadius: 16,
+  shadowOffset: { width: 0, height: 8 },
+  elevation: 6,
+};
+
 /** Status → badge colours (mirrors the web StatusBadge). */
 export const statusColors: Record<string, { bg: string; fg: string }> = {
-  SCHEDULED: { bg: colors.navy50, fg: colors.navy700 },
+  SCHEDULED: { bg: colors.navy50, fg: colors.navy600 },
   CONFIRMED: { bg: "#EFF6FF", fg: "#1D4ED8" },
   CHECKED_IN: { bg: colors.warningBg, fg: colors.warning },
   IN_PROGRESS: { bg: colors.gold100, fg: colors.gold700 },

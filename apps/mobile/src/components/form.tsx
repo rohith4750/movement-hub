@@ -4,14 +4,16 @@
  */
 import Ionicons from "@expo/vector-icons/Ionicons";
 import RNDateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { api } from "@/lib/api";
 import { hasRole, useAuth, type Role } from "@/lib/auth";
-import { date as fmtDate } from "@/lib/format";
+import { ageFrom, date as fmtDate, dobFromAge } from "@/lib/format";
 import { colors, radius, shadow, space } from "@/theme";
-import { Button, Caption, Empty, H2, Input, Muted, Row, Screen, Text, TopBar } from "./ui";
+import { Button, Caption, Empty, Field, H2, Input, Muted, Row, Screen, Text, TopBar } from "./ui";
 
 type IconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -140,6 +142,47 @@ const fromYmd = (s: string) => {
 };
 
 /** Date field storing "YYYY-MM-DD". Native date dialog on Android, inline calendar sheet on iOS. */
+/**
+ * Date of birth + age, kept in sync: picking a date fills the age, typing an age sets an
+ * approximate date of birth (today's day and month, N years back). Only the date is saved.
+ */
+export function DobAgeFields({ dob, onDob, clearable }: { dob: string; onDob: (v: string) => void; clearable?: boolean }) {
+  const [age, setAge] = useState(() => (dob ? String(ageFrom(dob) ?? "") : ""));
+  const maxDate = new Date();
+  return (
+    <Row gap={space.sm} style={{ alignItems: "flex-start" }}>
+      <View style={{ flex: 2 }}>
+        <DateField
+          label="Date of birth"
+          value={dob}
+          onChange={(v) => {
+            onDob(v);
+            setAge(v ? String(ageFrom(v) ?? "") : "");
+          }}
+          maximumDate={maxDate}
+          clearable={clearable}
+        />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Field label="Age (years)">
+          <Input
+            value={age}
+            onChangeText={(t) => {
+              const digits = t.replace(/\D/g, "").slice(0, 3);
+              const n = digits === "" ? null : Math.min(Number(digits), 120);
+              setAge(n === null ? "" : String(n));
+              onDob(n === null ? "" : dobFromAge(n));
+            }}
+            keyboardType="number-pad"
+            maxLength={3}
+            placeholder="e.g. 34"
+          />
+        </Field>
+      </View>
+    </Row>
+  );
+}
+
 export function DateField({
   label,
   value,
@@ -220,7 +263,7 @@ export function ListRow({ icon, title, subtitle, onPress, right, danger }: { ico
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? "button" : undefined} style={({ pressed }) => [styles.listRow, pressed && onPress && { opacity: 0.85 }]}>
       {icon ? (
         <View style={[styles.listIcon, danger && { backgroundColor: colors.dangerBg }]}>
-          <Ionicons name={icon} size={20} color={danger ? colors.danger : colors.navy700} />
+          <Ionicons name={icon} size={20} color={danger ? colors.danger : colors.navy800} />
         </View>
       ) : null}
       <View style={{ flex: 1, gap: 2 }}>
@@ -236,7 +279,10 @@ export function ListRow({ icon, title, subtitle, onPress, right, danger }: { ico
 export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <Row style={{ justifyContent: "space-between", marginTop: space.xs }}>
-      <Text weight="bold" style={{ fontSize: 12, letterSpacing: 1.2, color: colors.gold700, textTransform: "uppercase" }}>{children}</Text>
+      <Row gap={8}>
+        <View style={{ width: 3, height: 14, borderRadius: 2, backgroundColor: colors.gold500 }} />
+        <Text weight="bold" style={{ fontSize: 12, letterSpacing: 1.2, color: colors.navy700, textTransform: "uppercase" }}>{children}</Text>
+      </Row>
       {action}
     </Row>
   );
@@ -266,8 +312,8 @@ export const goBack = (fallback: Parameters<typeof router.replace>[0] = "/") => 
 export function StatTile({ label, value, hint, good }: { label: string; value: string | number; hint?: string; good?: boolean }) {
   return (
     <View style={styles.stat}>
-      <Muted style={{ fontSize: 11 }}>{label}</Muted>
-      <Text weight="bold" style={{ fontSize: 20, color: good ? colors.success : colors.navy700 }} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+      <Text weight="semibold" style={{ fontSize: 10, color: colors.muted, letterSpacing: 0.8, textTransform: "uppercase" }}>{label}</Text>
+      <Text weight="bold" style={{ fontSize: 22, color: good ? colors.success : colors.navy900, letterSpacing: -0.3 }} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
       {hint ? <Muted style={{ fontSize: 10 }} numberOfLines={1}>{hint}</Muted> : null}
     </View>
   );
@@ -295,9 +341,9 @@ export function Bars({ rows }: { rows: { label: string; value: number; display?:
 }
 
 const styles = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(16,20,61,0.45)" },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(5,10,36,0.55)" },
   sheetWrap: { flex: 1, justifyContent: "flex-end" },
-  sheet: { backgroundColor: colors.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "92%", ...shadow },
+  sheet: { backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "92%", ...shadow },
   grabber: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: colors.navy100, marginVertical: space.sm },
   sheetFooter: { padding: space.lg, paddingTop: space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, backgroundColor: colors.white },
   field: {
@@ -315,8 +361,26 @@ const styles = StyleSheet.create({
   selectBox: { flex: 1, justifyContent: "center", padding: space.lg },
   selectCard: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, maxHeight: "75%", ...shadow },
   option: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 12, paddingHorizontal: space.sm, borderRadius: radius.sm },
-  listRow: { flexDirection: "row", alignItems: "center", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.navy50 },
-  listIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gold100, alignItems: "center", justifyContent: "center" },
-  stat: { flexBasis: "47%", flexGrow: 1, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.navy50, gap: 2 },
+  listRow: { flexDirection: "row", alignItems: "center", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, ...shadow },
+  listIcon: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center" },
+  stat: { flexBasis: "47%", flexGrow: 1, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, borderLeftWidth: 3, borderLeftColor: colors.navy700, gap: 2, ...shadow },
 });
 
+
+/** The signed-in physio's own therapist id (null for other roles) — the default regular physio for new patients. */
+export const useOwnTherapistId = () => useAuth((s) => (s.user?.role === "PHYSIOTHERAPIST" ? s.user.therapistId ?? "" : ""));
+
+/** "Regular physiotherapist" picker. Value "" = none. */
+export function RegularPhysioField({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const therapists = useQuery({ queryKey: ["therapists", false], queryFn: () => api.get<{ id: string; user: { name: string } }[]>("/therapists") });
+  return (
+    <SelectField
+      label="Regular physiotherapist"
+      value={value}
+      onChange={onChange}
+      placeholder={therapists.isLoading ? "Loading…" : "None"}
+      hint="Bookings default to this physio, and they see the patient under My patients."
+      options={[{ value: "", label: "None" }, ...(therapists.data ?? []).map((t) => ({ value: t.id, label: t.user.name }))]}
+    />
+  );
+}

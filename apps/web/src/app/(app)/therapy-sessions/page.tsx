@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { Empty, ErrorText, Field, Modal, PageHeader, Spinner, StatusBadge } from "@/components/ui";
@@ -78,6 +78,7 @@ type Ex = { name: string; sets?: number; reps?: number; durationMinutes?: number
 
 function SessionModal({ session, onClose }: { session: Session; onClose: () => void }) {
   const qc = useQueryClient();
+  const router = useRouter();
   const [painBefore, setPainBefore] = useState(session.painBefore ?? 5);
   const [painAfter, setPainAfter] = useState(3);
   const [progressRating, setProgressRating] = useState(3);
@@ -90,11 +91,21 @@ function SessionModal({ session, onClose }: { session: Session; onClose: () => v
 
   const start = useMutation({ mutationFn: () => api.post(`/therapy-sessions/${session.id}/start`, { painBefore }), onSuccess: refresh });
   const complete = useMutation({
-    mutationFn: () => api.post<{ package: { remainingSessions: number } | null }>(`/therapy-sessions/${session.id}/complete`, { painBefore, painAfter, progressRating, notes: notes || undefined, homeAdvice: homeAdvice || undefined, exercises: exercises.filter((e) => e.name) }),
+    mutationFn: () => api.post<{ package: { remainingSessions: number } | null; plan: { id: string; planNo: string; prescribedSessions: number; readyToComplete: boolean } | null }>(`/therapy-sessions/${session.id}/complete`, { painBefore, painAfter, progressRating, notes: notes || undefined, homeAdvice: homeAdvice || undefined, exercises: exercises.filter((e) => e.name) }),
     onSuccess: (r) => {
       refresh();
-      if (r.package) alert(`Session completed. ${r.package.remainingSessions} package session(s) remaining.`);
+      qc.invalidateQueries({ queryKey: ["plans"] });
+      if (r.plan) qc.invalidateQueries({ queryKey: ["plan", r.plan.id] });
+      const pkgNote = r.package ? ` ${r.package.remainingSessions} package session(s) remaining.` : "";
       onClose();
+      if (r.plan?.readyToComplete) {
+        // Last prescribed session done — offer to go straight to the plan and complete the treatment.
+        if (confirm(`Session completed.${pkgNote}
+
+All ${r.plan.prescribedSessions} prescribed sessions of plan ${r.plan.planNo} are done. Open the plan to complete the treatment?`)) {
+          router.push(`/treatment-plans/${r.plan.id}`);
+        }
+      } else if (r.package) alert(`Session completed.${pkgNote}`);
     },
   });
 

@@ -2,10 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Switch } from "react-native";
-import { DateField, goBack, RequireRole, SectionTitle } from "@/components/form";
+import { DobAgeFields, goBack, RegularPhysioField, RequireRole, SectionTitle } from "@/components/form";
 import { Button, Card, Chips, ErrorBox, Field, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
-import { fullName, today } from "@/lib/format";
+import { fullName } from "@/lib/format";
 import type { PatientDetail } from "@/lib/types";
 import { colors, space } from "@/theme";
 
@@ -47,6 +47,7 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
   });
   const [gender, setGender] = useState<Gender>((patient.gender as Gender) ?? "OTHER");
   const [consent, setConsent] = useState(!!patient.consentGiven);
+  const [physio, setPhysio] = useState(patient.primaryTherapistId ?? "");
   const set = (k: keyof typeof f) => (t: string) => setF((x) => ({ ...x, [k]: t }));
 
   const problem = !f.firstName.trim()
@@ -69,6 +70,7 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
         phone: f.phone.trim(),
         email: f.email.trim() || undefined,
         referredBy: f.referredBy.trim() || undefined,
+        primaryTherapistId: physio || null,
         occupation: f.occupation.trim() || undefined,
         emergencyName: f.emergencyName.trim() || undefined,
         emergencyPhone: f.emergencyPhone.trim() || undefined,
@@ -94,10 +96,11 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
         <Field label="Gender">
           <Chips<Gender> value={gender} onChange={setGender} options={[{ value: "FEMALE", label: "Female" }, { value: "MALE", label: "Male" }, { value: "OTHER", label: "Other" }]} />
         </Field>
-        <DateField label="Date of birth" value={f.dateOfBirth} onChange={set("dateOfBirth")} maximumDate={new Date(`${today()}T12:00:00`)} />
+        <DobAgeFields dob={f.dateOfBirth} onDob={set("dateOfBirth")} clearable />
         <Field label="Email"><Input value={f.email} onChangeText={set("email")} keyboardType="email-address" autoCapitalize="none" /></Field>
         <Field label="Occupation"><Input value={f.occupation} onChangeText={set("occupation")} /></Field>
         <Field label="Referred by"><Input value={f.referredBy} onChangeText={set("referredBy")} /></Field>
+        <RegularPhysioField value={physio} onChange={setPhysio} />
       </Card>
 
       <Card style={{ gap: space.md }}>

@@ -12,6 +12,8 @@ export interface Patient {
   createdAt: string;
   packages?: { id: string; remainingSessions: number; expiryDate: string }[];
   treatmentPlans?: { id: string; title: string }[];
+  primaryTherapistId?: string | null;
+  primaryTherapist?: { id: string; colorTag: string | null; user: { name: string } } | null;
 }
 
 export interface Therapist {
@@ -40,6 +42,28 @@ export interface Appointment {
   consultation: { id: string } | null;
 }
 
+export type TreatmentOutcome = "GOALS_MET" | "PARTIALLY_MET" | "NOT_MET" | "DISCONTINUED";
+
+export const OUTCOME_LABEL: Record<TreatmentOutcome, string> = {
+  GOALS_MET: "Goals met",
+  PARTIALLY_MET: "Partially met",
+  NOT_MET: "Not met",
+  DISCONTINUED: "Discontinued",
+};
+
+export interface PlanProgress {
+  completedSessions: number;
+  upcomingSessions: number;
+  /** Visits still booked under the plan (incl. one in progress). */
+  bookedVisits: number;
+  remaining: number;
+  percent: number;
+  /** All prescribed sessions are done. */
+  readyToComplete: boolean;
+  /** Pain after the most recent completed session. */
+  latestPain: number | null;
+}
+
 export interface TreatmentPlan {
   id: string;
   planNo: string;
@@ -51,6 +75,11 @@ export interface TreatmentPlan {
   frequencyPerWeek: number;
   sessionMinutes: number;
   instructions: string | null;
+  completedAt?: string | null;
+  outcome?: TreatmentOutcome | null;
+  finalPainScore?: number | null;
+  dischargeSummary?: string | null;
+  homeProgram?: string | null;
   createdAt: string;
   patient: { id: string; patientCode: string; firstName: string; lastName: string | null };
   therapist: { id: string; user: { name: string } };

@@ -10,7 +10,7 @@ import { PatientForm } from "@/components/patient-form";
 import { Empty, ErrorText, Field, PageHeader, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth-store";
-import { date, fullName, label, time, today } from "@/lib/format";
+import { ageFrom, date, fullName, label, time, today } from "@/lib/format";
 import type { Appointment, AvailabilityRow, Patient, PatientPackage, Therapist, TreatmentPlan } from "@/lib/types";
 import { refresh } from "@/lib/invalidate";
 
@@ -68,9 +68,14 @@ function BookAppointment() {
   const [planChoice, setPlanChoice] = useState<string | null>(null);
   const [packageChoice, setPackageChoice] = useState<string | null>(null);
   const [addressChoice, setAddressChoice] = useState<string | null>(null);
+  const [addingAddress, setAddingAddress] = useState(false);
   const [therapistChoice, setTherapistChoice] = useState<string | null>(null); // "" = any
-  const [day, setDay] = useState(today());
-  const [slot, setSlot] = useState<{ id: string; startAt: string; therapist: string } | null>(null);
+  const [dayChoice, setDay] = useState<string | null>(null);
+  const [slot, setSlot] = useState<{ id: string; startAt: string; therapist: string; therapistId: string } | null>(null);
+  // Repeat weekly (therapy sessions): book the same time on chosen weekdays for N weeks.
+  const [repeat, setRepeat] = useState(false);
+  const [repeatDays, setRepeatDays] = useState<string[] | null>(null);
+  const [repeatWeeks, setRepeatWeeks] = useState<number | null>(null);
   const [distanceKm, setDistanceKm] = useState("");
   const [notes, setNotes] = useState("");
   const [creatingPlan, setCreatingPlan] = useState(false);
@@ -110,8 +115,10 @@ function BookAppointment() {
   const pkg = pkgList.find((p) => p.id === packageId);
   const addressList = addresses.data ?? [];
   const addressId = addressChoice ?? (addressList.find((a) => a.isDefault) ?? addressList[0])?.id ?? "";
-  // Physio: user's choice → the plan's physio → (reschedule) the current physio → any
-  const therapistId = therapistChoice ?? plan?.therapist.id ?? original.data?.therapist.id ?? "";
+  // Physio: user's choice → the plan's physio → (reschedule) the current physio → the patient's regular physio
+  // → the signed-in physio → any
+  const therapistId =
+    therapistChoice ?? plan?.therapist.id ?? original.data?.therapist.id ?? selectedPatient.data?.primaryTherapist?.id ?? (user?.role === "PHYSIOTHERAPIST" ? user.therapistId : null) ?? "";
   const therapistOk = !therapistId || (therapists.data ?? []).some((t) => t.id === therapistId);
   const effectiveTherapist = therapistOk ? therapistId : "";
 
@@ -119,6 +126,8 @@ function BookAppointment() {
     queryKey: ["availability-summary", type, effectiveTherapist],
     queryFn: () => api.get<{ date: string; free: number }[]>("/availability/summary", { from: today(), days: DAYS_SHOWN, type, therapistId: effectiveTherapist || undefined }),
   });
+  // Start on the first day with free times instead of a full "today".
+  const day = dayChoice ?? summary.data?.find((d) => d.free > 0)?.date ?? today();
   const avail = useQuery({
     queryKey: ["availability", day, type, effectiveTherapist],
     queryFn: () => api.get<AvailabilityRow[]>("/availability", { date: day, type, therapistId: effectiveTherapist || undefined }),
@@ -135,9 +144,33 @@ function BookAppointment() {
     resetSlot();
   };
 
+  const canRepeat = !rescheduleId && !isPatient && needsPlan && !!planId && !!slot;
+  const repeating = canRepeat && repeat;
+  const slotLocal = slot ? new Date(new Date(slot.startAt).getTime() + 330 * 60_000).toISOString() : "";
+  const slotDate = slotLocal.slice(0, 10);
+  const slotTime = slotLocal.slice(11, 16);
+  const slotWeekday = slot ? WEEKDAYS[(new Date(`${slotDate}T12:00:00Z`).getUTCDay() + 6) % 7] : "MON";
+  const weekdays = repeatDays ?? [slotWeekday];
+  const weeks = repeatWeeks ?? Math.min(12, Math.max(1, Math.ceil((plan?.prescribedSessions ?? 4) / Math.max(1, plan?.frequencyPerWeek ?? 1))));
+  const preview = useQuery({
+    queryKey: ["recurring-preview", patientId, slot?.therapistId, slotTime, slotDate, weekdays.join(","), weeks, packageId],
+    queryFn: () =>
+      api.post<{ items: { date: string; startAt: string; slotId: string | null; ok: boolean; reason: string | null }[]; available: number; packageRemaining: number | null }>(
+        "/appointments/recurring/preview",
+        { patientId, therapistId: slot!.therapistId, time: slotTime, from: slotDate, weekdays, weeks, patientPackageId: packageId || undefined },
+      ),
+    enabled: repeating && weekdays.length > 0,
+  });
+  const repeatSlotIds = (preview.data?.items ?? []).filter((i) => i.ok && i.slotId).map((i) => i.slotId!);
+
   const book = useMutation({
     mutationFn: async (): Promise<string> => {
       if (!slot) throw new Error("Choose a time slot");
+      if (repeating) {
+        if (!repeatSlotIds.length) throw new Error("None of the repeat dates are free");
+        const list = await api.post<{ id: string }[]>("/appointments/recurring", { patientId, treatmentPlanId: planId, patientPackageId: packageId || undefined, slotIds: repeatSlotIds, notes: notes.trim() || undefined });
+        return list[0].id;
+      }
       if (rescheduleId) return (await api.post<{ id: string }>(`/appointments/${rescheduleId}/reschedule`, { newSlotId: slot.id })).id;
       const base = {
         patientId: isPatient ? undefined : patientId,
@@ -211,7 +244,7 @@ function BookAppointment() {
                         className={clsx("flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm", patientId === p.id ? "border-gold-500 bg-gold-100" : "border-navy-100 hover:border-gold-300")}
                       >
                         <span className="font-medium">{fullName(p)}</span>
-                        <span className="shrink-0 text-xs text-navy-500">{p.patientCode} · {p.phone}</span>
+                        <span className="shrink-0 text-xs text-navy-500">{p.patientCode}{ageFrom(p.dateOfBirth) !== null ? ` · ${ageFrom(p.dateOfBirth)} yrs` : ""} · {p.phone}</span>
                       </button>
                     ))}
                     {patients.data?.data.length === 0 && (
@@ -318,8 +351,18 @@ function BookAppointment() {
                         {addressList.map((a) => <option key={a.id} value={a.id}>{a.label}: {a.line1}, {a.city}</option>)}
                       </select>
                     </Field>
-                    {patientId && !addresses.isLoading && !addressList.length && !isPatient && (
-                      <Link href={`/patients/${patientId}`} className="mt-1 inline-block text-xs font-semibold text-gold-700">Add address on the patient profile →</Link>
+                    {patientId && !addresses.isLoading && (
+                      addingAddress ? (
+                        <QuickAddressForm
+                          patientId={patientId}
+                          onCreated={(id) => { setAddingAddress(false); setAddressChoice(id); }}
+                          onCancel={() => setAddingAddress(false)}
+                        />
+                      ) : (
+                        <button type="button" className="mt-1 text-xs font-semibold text-gold-700" onClick={() => setAddingAddress(true)}>
+                          + {addressList.length ? "Add another address" : "Add the patient's address"}
+                        </button>
+                      )
                     )}
                   </div>
                   {!isPatient && <Field label="Distance (km)"><input className="input" type="number" min={0} value={distanceKm} onChange={(e) => setDistanceKm(e.target.value)} /></Field>}
@@ -413,7 +456,7 @@ function BookAppointment() {
                               <button
                                 key={s.slotId}
                                 type="button"
-                                onClick={() => setSlot({ id: s.slotId, startAt: s.startAt, therapist: t.therapistName })}
+                                onClick={() => setSlot({ id: s.slotId, startAt: s.startAt, therapist: t.therapistName, therapistId: t.therapistId })}
                                 className={clsx("rounded-md border px-3 py-1.5 text-sm", slot?.id === s.slotId ? "border-navy-700 bg-navy-700 text-white" : "border-navy-100 hover:border-gold-500")}
                               >
                                 {time(s.startAt)}
@@ -439,12 +482,61 @@ function BookAppointment() {
               {!rescheduleId && !isConsult && <SummaryItem icon={ClipboardList} k="Plan" v={plan?.title ?? (needsPlan ? "Required" : "None")} />}
               {!rescheduleId && usesPackage && <SummaryItem icon={CreditCard} k="Payment" v={pkg ? `${pkg.package.name} (${pkg.remainingSessions} left)` : "Pay per visit"} />}
             </div>
+            {canRepeat && (
+              <div className="mt-4 rounded-lg border border-navy-100 p-3 text-sm">
+                <label className="flex items-center gap-2 font-semibold">
+                  <input type="checkbox" checked={repeat} onChange={(e) => setRepeat(e.target.checked)} /> Repeat weekly at {time(slot!.startAt)} with {slot!.therapist}
+                </label>
+                {repeat && (
+                  <div className="mt-3 space-y-3">
+                    <div className="flex flex-wrap items-center gap-1">
+                      {WEEKDAYS.map((d) => {
+                        const on = weekdays.includes(d);
+                        return (
+                          <button key={d} type="button" className={on ? "btn-gold px-2 py-1 text-xs" : "btn-ghost px-2 py-1 text-xs"} onClick={() => setRepeatDays(on ? weekdays.filter((x) => x !== d) : [...weekdays, d])}>
+                            {d.charAt(0) + d.slice(1).toLowerCase()}
+                          </button>
+                        );
+                      })}
+                      <span className="ml-3 text-navy-500">for</span>
+                      <select className="input w-auto py-1 text-xs" value={weeks} onChange={(e) => setRepeatWeeks(Number(e.target.value))}>
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n} week{n > 1 ? "s" : ""}</option>)}
+                      </select>
+                    </div>
+                    {!weekdays.length ? (
+                      <p className="text-xs text-amber-700">Pick at least one weekday.</p>
+                    ) : preview.isLoading ? (
+                      <Spinner />
+                    ) : preview.error ? (
+                      <ErrorText error={preview.error} />
+                    ) : preview.data ? (
+                      <>
+                        <ul className="max-h-56 space-y-1 overflow-y-auto">
+                          {preview.data.items.map((i) => (
+                            <li key={i.date} className="flex justify-between gap-3">
+                              <span>{date(i.startAt)}, {time(i.startAt)}</span>
+                              {i.ok ? <span className="text-emerald-700">✓ Free</span> : <span className="text-right text-amber-700">{i.reason}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="text-xs text-navy-500">
+                          {preview.data.available} of {preview.data.items.length} dates are free; only the free ones will be booked.
+                          {preview.data.packageRemaining !== null && preview.data.available > preview.data.packageRemaining && (
+                            <span className="text-amber-700"> The package has only {preview.data.packageRemaining} session(s) left.</span>
+                          )}
+                        </p>
+                      </>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="mt-4"><ErrorText error={book.error} /></div>
             <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
               {missing && <span className="mr-auto flex items-center gap-1 text-xs font-medium text-amber-700"><AlertCircle size={14} /> {missing}</span>}
               <Link href="/appointments" className="btn-ghost">Cancel</Link>
-              <button className="btn-primary" disabled={!!missing || book.isPending} onClick={() => book.mutate()}>
-                {book.isPending ? "Saving…" : rescheduleId ? "Move appointment" : "Confirm booking"}
+              <button className="btn-primary" disabled={!!missing || book.isPending || (repeating && !repeatSlotIds.length)} onClick={() => book.mutate()}>
+                {book.isPending ? "Saving…" : rescheduleId ? "Move appointment" : repeating ? `Book ${repeatSlotIds.length} session${repeatSlotIds.length === 1 ? "" : "s"}` : "Confirm booking"}
               </button>
             </div>
           </section>
@@ -453,6 +545,8 @@ function BookAppointment() {
     </>
   );
 }
+
+const WEEKDAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
 function SummaryItem({ icon: Icon, k, v }: { icon: typeof User; k: string; v?: string | null }) {
   return (
@@ -486,7 +580,7 @@ function QuickPlanForm({ patientId, defaultTherapistId, onCreated, onCancel }: {
     mutationFn: () =>
       api.post<{ id: string }>("/treatment-plans", {
         patientId,
-        title: f.title.trim(),
+        title: f.title.trim() || undefined,
         diagnosis: f.diagnosis.trim() || undefined,
         prescribedSessions: Number(f.prescribedSessions),
         frequencyPerWeek: Number(f.frequencyPerWeek),
@@ -501,12 +595,12 @@ function QuickPlanForm({ patientId, defaultTherapistId, onCreated, onCancel }: {
     },
   });
 
-  const valid = f.title.trim().length >= 2 && items.some((i) => i.name.trim()) && (isPhysio || f.therapistId);
+  const valid = items.some((i) => i.name.trim()) && (isPhysio || f.therapistId);
 
   return (
     <div className="mt-3 space-y-3 rounded-lg border border-gold-300 bg-gold-100/40 p-3">
       <div className="text-sm font-bold">New treatment plan</div>
-      <Field label="Plan title *"><input className="input" placeholder="e.g. Lower back rehab" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} autoFocus /></Field>
+      <Field label="Plan title"><input className="input" placeholder="Optional — defaults to the diagnosis" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} autoFocus /></Field>
       <Field label="Diagnosis"><input className="input" value={f.diagnosis} onChange={(e) => setF({ ...f, diagnosis: e.target.value })} /></Field>
       {!isPhysio && (
         <Field label="Treating physiotherapist *">
@@ -538,6 +632,36 @@ function QuickPlanForm({ patientId, defaultTherapistId, onCreated, onCancel }: {
       <div className="flex justify-end gap-2">
         <button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button>
         <button type="button" className="btn-primary" disabled={!valid || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Create & select plan"}</button>
+      </div>
+    </div>
+  );
+}
+
+/** Inline address form so a home visit can be booked without leaving this page. */
+function QuickAddressForm({ patientId, onCreated, onCancel }: { patientId: string; onCreated: (id: string) => void; onCancel: () => void }) {
+  const qc = useQueryClient();
+  const [f, setF] = useState({ line1: "", city: "", state: "", pincode: "" });
+  const save = useMutation({
+    mutationFn: () => api.post<{ id: string }>(`/patients/${patientId}/addresses`, { label: "Home", line1: f.line1.trim(), city: f.city.trim(), state: f.state.trim(), pincode: f.pincode.trim(), isDefault: true }),
+    onSuccess: async (a) => {
+      await qc.invalidateQueries({ queryKey: ["addresses", patientId] });
+      qc.invalidateQueries({ queryKey: ["patient", patientId] });
+      onCreated(a.id);
+    },
+  });
+  const valid = f.line1.trim().length >= 2 && f.city.trim() && f.state.trim() && /^\d{6}$/.test(f.pincode.trim());
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-gold-300 bg-gold-100/40 p-3">
+      <input className="input" placeholder="House / street" value={f.line1} onChange={(e) => setF({ ...f, line1: e.target.value })} autoFocus />
+      <div className="grid grid-cols-3 gap-2">
+        <input className="input" placeholder="City" value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} />
+        <input className="input" placeholder="State" value={f.state} onChange={(e) => setF({ ...f, state: e.target.value })} />
+        <input className="input" placeholder="Pincode" inputMode="numeric" maxLength={6} value={f.pincode} onChange={(e) => setF({ ...f, pincode: e.target.value.replace(/\D/g, "") })} />
+      </div>
+      <ErrorText error={save.error} />
+      <div className="flex justify-end gap-2">
+        <button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn-primary" disabled={!valid || save.isPending} onClick={() => save.mutate()}>Save address</button>
       </div>
     </div>
   );

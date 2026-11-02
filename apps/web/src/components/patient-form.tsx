@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-store";
+import { ageFrom, dobFromAge } from "@/lib/format";
 import type { Patient } from "@/lib/types";
 import { ErrorText, Field } from "./ui";
 
@@ -15,7 +17,12 @@ const EMPTY = { firstName: "", lastName: "", gender: "MALE", dateOfBirth: "", ph
  */
 export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add patient" }: { onCreated: (p: Patient) => void; onCancel?: () => void; compact?: boolean; submitLabel?: string }) {
   const qc = useQueryClient();
+  const user = useAuth((s) => s.user);
   const [f, setF] = useState(EMPTY);
+  // Regular physio: defaults to the physio registering the patient.
+  const [physio, setPhysio] = useState<string | null>(null);
+  const therapists = useQuery({ queryKey: ["therapists"], queryFn: () => api.get<{ id: string; user: { name: string } }[]>("/therapists") });
+  const primaryTherapistId = physio ?? (user?.role === "PHYSIOTHERAPIST" ? user.therapistId ?? "" : "");
   const [more, setMore] = useState(!compact);
   const set = (k: keyof typeof EMPTY) => (e: { target: { value: string; checked?: boolean; type?: string } }) => setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
 
@@ -29,12 +36,14 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
         phone: f.phone,
         email: f.email.trim() || undefined,
         referredBy: f.referredBy.trim() || undefined,
+        primaryTherapistId: primaryTherapistId || undefined,
         consentGiven: f.consentGiven,
         address: f.line1.trim() ? { line1: f.line1.trim(), city: f.city.trim(), state: f.state.trim(), pincode: f.pincode.trim() } : undefined,
       }),
     onSuccess: (p) => {
       qc.invalidateQueries({ queryKey: ["patients"] });
       setF(EMPTY);
+      setPhysio(null);
       onCreated(p);
     },
   });
@@ -55,8 +64,28 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
       <Field label="Gender *">
         <select className="input" value={f.gender} onChange={set("gender")}><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select>
       </Field>
-      <Field label="Date of birth"><input className="input" type="date" value={f.dateOfBirth} onChange={set("dateOfBirth")} /></Field>
+      <div className="grid grid-cols-[1fr_6rem] gap-2">
+        <Field label="Date of birth"><input className="input" type="date" max={new Date().toISOString().slice(0, 10)} value={f.dateOfBirth} onChange={set("dateOfBirth")} /></Field>
+        <Field label="Age">
+          <input
+            className="input"
+            inputMode="numeric"
+            placeholder="yrs"
+            value={ageFrom(f.dateOfBirth) ?? ""}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, "").slice(0, 3);
+              setF({ ...f, dateOfBirth: v && Number(v) < 130 ? dobFromAge(Number(v)) : "" });
+            }}
+          />
+        </Field>
+      </div>
       <Field label="Email"><input className="input" type="email" value={f.email} onChange={set("email")} /></Field>
+      <Field label="Regular physiotherapist">
+        <select className="input" value={primaryTherapistId} onChange={(e) => setPhysio(e.target.value)}>
+          <option value="">None</option>
+          {therapists.data?.map((t) => <option key={t.id} value={t.id}>{t.user.name}</option>)}
+        </select>
+      </Field>
 
       {compact && !more && (
         <button type="button" className={clsx(full, "text-left text-xs font-semibold text-gold-700")} onClick={() => setMore(true)}>+ Add address &amp; referral (needed for home visits)</button>

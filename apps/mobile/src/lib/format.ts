@@ -66,4 +66,22 @@ export const greeting = () => {
 };
 
 /** Age in whole years from a date of birth (null if unknown). */
-export const ageYears = (dob?: string | null) => (dob ? Math.floor((Date.now() - new Date(dob).getTime()) / 31_557_600_000) : null);
+export const ageYears = (dob?: string | null) => ageFrom(dob);
+
+/** Age in whole years from a date of birth, by calendar (null if unknown). */
+export const ageFrom = (dob?: string | null): number | null => {
+  if (!dob) return null;
+  const t = today();
+  const d = dob.slice(0, 10);
+  let years = Number(t.slice(0, 4)) - Number(d.slice(0, 4));
+  if (t.slice(5) < d.slice(5)) years -= 1;
+  return years >= 0 ? years : null;
+};
+
+/** Approximate date of birth for an age typed in years: today's month/day, N years back. */
+export const dobFromAge = (years: number) => {
+  const t = today();
+  const y = Number(t.slice(0, 4)) - years;
+  const md = t.slice(5) === "02-29" ? "02-28" : t.slice(5);
+  return `${String(y).padStart(4, "0")}-${md}`;
+};

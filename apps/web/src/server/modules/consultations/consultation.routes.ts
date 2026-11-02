@@ -25,10 +25,11 @@ export const assessmentBody = z.object({
   mobilityStatus: z.string().optional(),
   gait: z.string().optional(),
   observations: z.string().optional(),
+  diagnosis: z.string().trim().max(1000).optional().transform((v) => v || undefined),
 });
 
 const consultationBody = z.object({
-  chiefComplaint: z.string().min(2),
+  chiefComplaint: z.string().trim().max(500).optional().transform((v) => v || undefined),
   symptoms: z.string().optional(),
   historyOfIllness: z.string().optional(),
   clinicalImpression: z.string().optional(),

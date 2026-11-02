@@ -77,6 +77,7 @@ export default function PatientScreen() {
           <Card style={{ backgroundColor: colors.navy700, borderColor: colors.navy700 }}>
             <Text weight="bold" style={{ color: colors.white, fontSize: 20 }}>{fullName(p)}</Text>
             <Text style={{ color: colors.gold300 }}>{p.patientCode} · {label(p.gender)}{age !== null ? ` · ${age} yrs` : ""}</Text>
+            {p.primaryTherapist ? <Text style={{ color: colors.navy100, fontSize: 13 }}>Regular physio: {p.primaryTherapist.user.name}</Text> : null}
             <Pressable onPress={() => Linking.openURL(`tel:${p.phone}`)} accessibilityRole="link" accessibilityLabel={`Call ${p.phone}`}>
               <Row gap={6} style={{ marginTop: space.xs }}>
                 <Ionicons name="call" size={14} color={colors.navy100} />

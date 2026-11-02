@@ -35,8 +35,11 @@ export interface PatientListItem {
   lastName: string | null;
   gender: string;
   phone: string;
+  dateOfBirth?: string | null;
   packages?: { id: string; remainingSessions: number; expiryDate: string }[];
   treatmentPlans?: { id: string; title: string }[];
+  primaryTherapistId?: string | null;
+  primaryTherapist?: { id: string; colorTag: string | null; user: { name: string } } | null;
 }
 
 export interface PatientDetail {
@@ -51,6 +54,8 @@ export interface PatientDetail {
   emergencyName: string | null;
   emergencyPhone: string | null;
   referredBy: string | null;
+  primaryTherapistId?: string | null;
+  primaryTherapist?: { id: string; colorTag: string | null; user: { name: string } } | null;
   addresses: { id: string; label: string; line1: string; city: string; pincode: string; isDefault: boolean }[];
   medicalHistory: { id: string; condition: string; details: string | null; isOngoing: boolean; medications: string | null; allergies: string | null }[];
   packages: { id: string; status: string; remainingSessions: number; totalSessions: number; expiryDate: string; package: { name: string } }[];
@@ -66,6 +71,28 @@ export interface Therapist {
   specializations: { specialization: { id: string; name: string } }[];
 }
 
+export type TreatmentOutcome = "GOALS_MET" | "PARTIALLY_MET" | "NOT_MET" | "DISCONTINUED";
+
+export const OUTCOME_LABEL: Record<TreatmentOutcome, string> = {
+  GOALS_MET: "Goals met",
+  PARTIALLY_MET: "Partially met",
+  NOT_MET: "Not met",
+  DISCONTINUED: "Discontinued",
+};
+
+export interface PlanProgress {
+  completedSessions: number;
+  upcomingSessions: number;
+  /** Visits still booked under the plan (incl. one in progress). */
+  bookedVisits: number;
+  remaining: number;
+  percent: number;
+  /** All prescribed sessions are done. */
+  readyToComplete: boolean;
+  /** Pain after the most recent completed session. */
+  latestPain: number | null;
+}
+
 export interface TreatmentPlan {
   id: string;
   planNo: string;
@@ -77,13 +104,18 @@ export interface TreatmentPlan {
   frequencyPerWeek: number;
   sessionMinutes: number;
   instructions: string | null;
+  completedAt?: string | null;
+  outcome?: TreatmentOutcome | null;
+  finalPainScore?: number | null;
+  dischargeSummary?: string | null;
+  homeProgram?: string | null;
   createdAt: string;
   therapist: { id: string; user: { name: string } };
   items: { id: string; category: string; name: string; sets: number | null; reps: number | null; durationMinutes: number | null }[];
 }
 
 export interface PlanDetail extends TreatmentPlan {
-  progress: { completedSessions: number; upcomingSessions: number; remaining: number; percent: number };
+  progress: PlanProgress;
   therapySessions: { id: string; sessionNumber: number | null; status: string; painBefore: number | null; painAfter: number | null; completedAt: string | null }[];
 }
 
@@ -152,4 +184,26 @@ export interface Me {
   phone: string;
   role: string;
   therapist: { id: string; colorTag: string | null } | null;
+}
+
+export type ProgressStatus = "IMPROVED" | "SAME" | "WORSE";
+
+export const PROGRESS_STATUS_LABEL: Record<ProgressStatus, string> = { IMPROVED: "Improved", SAME: "Same", WORSE: "Worse" };
+
+/** One day of a plan's progress. Days without an entry carry the last recorded values forward. */
+export interface ProgressDay {
+  date: string; // YYYY-MM-DD
+  painScore: number | null;
+  status: ProgressStatus | null;
+  notes: string | null;
+  carriedForward: boolean;
+  /** Date of the entry these values come from. */
+  recordedOn: string | null;
+  entryId: string | null;
+}
+
+export interface ProgressLog {
+  days: ProgressDay[]; // newest first
+  entries: number;
+  editable: boolean;
 }

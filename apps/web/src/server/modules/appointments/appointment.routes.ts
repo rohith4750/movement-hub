@@ -4,10 +4,11 @@ import { prisma, type Prisma } from "@movement-hub/database";
 import { created, handler, idParam, meta, ok, paginationQuery, paging, q } from "../../lib/http";
 import { audit } from "../../lib/audit";
 import { badRequest, forbidden } from "../../lib/http-error";
-import { addDays, dateOnly, dayRange, todayLocal } from "../../lib/time";
+import { addDays, dateOnly, dayRange, localDateTime, localDayCode, todayLocal } from "../../lib/time";
 import { assertPatientAccess, authorize, isPatient, scopePatient, STAFF } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { afterBooked, book, bookInTx, cancel, deleteAppointment, editAppointment, reschedule, transition } from "./appointment.service";
+import { generateSlots } from "../scheduling/scheduling.service";
 
 export const appointmentRouter = Router();
 export const waitlistRouter = Router();
@@ -100,6 +101,70 @@ appointmentRouter.post(
     const a = await book({ ...req.body, patientId }, req.user!.id);
     await audit(req, "CREATE", "Appointment", a.id, null, a);
     created(res, await prisma.appointment.findUnique({ where: { id: a.id }, include }));
+  }),
+);
+
+const WEEKDAY = z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]);
+const ACTIVE_STATUSES = ["SCHEDULED", "CONFIRMED", "CHECKED_IN", "IN_PROGRESS"] as const;
+
+/**
+ * Plan a repeating series before booking it: for each chosen weekday over N weeks at the same time
+ * with the same physio, says whether that slot can be booked — and if not, why. Slots beyond the
+ * usual 30-day horizon are generated on demand from the physio's weekly schedule.
+ */
+appointmentRouter.post(
+  "/recurring/preview",
+  authorize("RECEPTIONIST", "ADMIN"),
+  validate({
+    body: z.object({
+      patientId: z.string().uuid(),
+      therapistId: z.string().uuid(),
+      time: z.string().regex(/^\d{2}:\d{2}$/),
+      from: date,
+      weekdays: z.array(WEEKDAY).min(1),
+      weeks: z.number().int().min(1).max(12),
+      patientPackageId: z.string().uuid().optional(),
+    }),
+  }),
+  handler(async (req, res) => {
+    const b = req.body as { patientId: string; therapistId: string; time: string; from: string; weekdays: z.infer<typeof WEEKDAY>[]; weeks: number; patientPackageId?: string };
+    const therapist = await prisma.therapist.findFirst({ where: { id: b.therapistId, isActive: true } });
+    if (!therapist) throw badRequest("Physiotherapist not found or inactive", "THERAPIST_NOT_FOUND");
+    const from = b.from < todayLocal() ? todayLocal() : b.from;
+    const to = addDays(from, b.weeks * 7 - 1);
+    await generateSlots(b.therapistId, from, to);
+
+    const dates: string[] = [];
+    for (let d = from; d <= to; d = addDays(d, 1)) if (b.weekdays.includes(localDayCode(d))) dates.push(d);
+    const starts = dates.map((d) => localDateTime(d, b.time));
+
+    const [slots, clashes, pkg] = await Promise.all([
+      prisma.therapistSlot.findMany({ where: { therapistId: b.therapistId, startAt: { in: starts } }, select: { id: true, startAt: true, endAt: true, status: true } }),
+      prisma.appointment.findMany({
+        where: { patientId: b.patientId, status: { in: [...ACTIVE_STATUSES] }, startAt: { lt: dayRange(to).lt }, endAt: { gt: dayRange(from).gte } },
+        select: { appointmentNo: true, startAt: true, endAt: true },
+      }),
+      b.patientPackageId ? prisma.patientPackage.findUnique({ where: { id: b.patientPackageId }, select: { expiryDate: true, remainingSessions: true } }) : null,
+    ]);
+    const bySlotStart = new Map(slots.map((sl) => [sl.startAt.getTime(), sl]));
+    const now = Date.now();
+
+    const items = dates.map((d, i) => {
+      const startAt = starts[i];
+      const sl = bySlotStart.get(startAt.getTime());
+      let reason: string | null = null;
+      if (startAt.getTime() <= now) reason = "Time has passed";
+      else if (!sl) reason = "Physio not working at this time (day off, break or leave)";
+      else if (sl.status === "BOOKED") reason = "Physio already booked";
+      else if (sl.status === "BLOCKED") reason = "Slot blocked";
+      else {
+        const clash = clashes.find((c) => c.startAt < sl.endAt && c.endAt > sl.startAt);
+        if (clash) reason = `Patient already has ${clash.appointmentNo}`;
+        else if (pkg && sl.startAt > pkg.expiryDate) reason = "After the package expires";
+      }
+      return { date: d, startAt: startAt.toISOString(), slotId: sl?.id ?? null, ok: !reason, reason };
+    });
+    ok(res, { items, available: items.filter((x) => x.ok).length, packageRemaining: pkg?.remainingSessions ?? null });
   }),
 );
 

@@ -27,7 +27,7 @@ export default function Visits() {
 
   return (
     <Screen refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
-      <BrandHeader title="Appointments" subtitle="Tap a visit to confirm, check in or update it" />
+      <BrandHeader title="Appointments" subtitle="Tap a visit to open, reschedule or update it" />
       {hasRole(user, "ADMIN", "RECEPTIONIST") ? <Button title="Book appointment" variant="gold" icon="add-circle-outline" onPress={() => router.push("/book")} /> : null}
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>

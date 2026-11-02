@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { Badge, Button, Card, Caption, ErrorBox, Field, H2, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { confirm } from "@/lib/confirm";
 import { fullName, time } from "@/lib/format";
 import type { TherapySession } from "@/lib/types";
 import { colors, radius, space } from "@/theme";
@@ -43,7 +44,7 @@ export default function SessionScreen() {
   const start = useMutation({ mutationFn: () => api.post(`/therapy-sessions/${id}/start`, { painBefore: before }), onSuccess: refresh });
   const complete = useMutation({
     mutationFn: () =>
-      api.post<{ package: { remainingSessions: number } | null }>(`/therapy-sessions/${id}/complete`, {
+      api.post<{ package: { remainingSessions: number } | null; plan: { id: string; planNo: string; prescribedSessions: number; readyToComplete: boolean } | null }>(`/therapy-sessions/${id}/complete`, {
         painBefore: before,
         painAfter,
         progressRating: rating,
@@ -53,8 +54,22 @@ export default function SessionScreen() {
           .filter((e) => e.name.trim())
           .map((e) => ({ name: e.name.trim(), sets: e.sets ? Number(e.sets) : undefined, reps: e.reps ? Number(e.reps) : undefined })),
       }),
-    onSuccess: () => {
+    onSuccess: async (r) => {
       refresh();
+      qc.invalidateQueries({ queryKey: ["plans"] });
+      if (r.plan) qc.invalidateQueries({ queryKey: ["plan", r.plan.id] });
+      if (r.plan?.readyToComplete) {
+        // Last prescribed session done — offer to complete the treatment right away.
+        const open = await confirm(
+          "All sessions done",
+          `All ${r.plan.prescribedSessions} prescribed sessions of plan ${r.plan.planNo} are complete. Open the plan to record the outcome and complete the treatment?`,
+          "Open plan",
+        );
+        if (open) {
+          router.replace({ pathname: "/plan/[id]", params: { id: r.plan.id, complete: "1" } });
+          return;
+        }
+      }
       router.back();
     },
   });
