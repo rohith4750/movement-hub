@@ -72,12 +72,17 @@ export default function AppointmentDetail() {
   });
 
   /* ── delete (admins) ── */
+  // Plain values, worked out here: the React Compiler turns `a?.x` read inside a callback into an
+  // unguarded `a.x` change-check, which crashed this screen while the appointment was loading.
+  const apptNo = a ? a.appointmentNo : "";
+  const patientName = a ? fullName(a.patient) : "";
+  const hasNotes = !!(a && a.consultation);
   const remove = useAction(
     async () => {
       const msg = hasClinical
-        ? `This visit already happened${a?.consultation ? " and has consultation notes" : ""}. Deleting it permanently removes it${a?.consultation ? " and its notes" : ""} from ${fullName(a?.patient)}'s record (a copy is kept in the audit log). Any package session it used is given back.`
-        : `This permanently removes the booking for ${fullName(a?.patient)} and frees the time slot. Use Cancel instead to keep a record.`;
-      if (!(await confirm(`Delete ${a?.appointmentNo}?`, msg, "Delete", true))) return false;
+        ? `This visit already happened${hasNotes ? " and has consultation notes" : ""}. Deleting it permanently removes it${hasNotes ? " and its notes" : ""} from ${patientName}'s record (a copy is kept in the audit log). Any package session it used is given back.`
+        : `This permanently removes the booking for ${patientName} and frees the time slot. Use Cancel instead to keep a record.`;
+      if (!(await confirm(`Delete ${apptNo}?`, msg, "Delete", true))) return false;
       await api.del(`/appointments/${id}`);
       return true;
     },
