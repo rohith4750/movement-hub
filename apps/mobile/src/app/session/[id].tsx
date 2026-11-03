@@ -28,6 +28,7 @@ export default function SessionScreen() {
   const [rating, setRating] = useState(3);
   const [notes, setNotes] = useState("");
   const [advice, setAdvice] = useState("");
+  const [coverReason, setCoverReason] = useState("");
   const [exercises, setExercises] = useState<Exercise[] | null>(null);
 
   const before = painBefore ?? s?.painBefore ?? 5;
@@ -35,11 +36,12 @@ export default function SessionScreen() {
     exercises ??
     (s?.treatmentPlan?.items.filter((i) => i.category === "Exercise Therapy").map((i) => ({ name: i.name, sets: i.sets ? String(i.sets) : "", reps: i.reps ? String(i.reps) : "" })) ?? []);
 
-  const start = useAction(() => api.post(`/therapy-sessions/${id}/start`, { painBefore: before }), { refresh: ["clinical", "appointments"] });
+  const start = useAction(() => api.post(`/therapy-sessions/${id}/start`, { painBefore: before, coverReason: coverReason.trim() || undefined }), { refresh: ["clinical", "appointments"] });
   const complete = useAction(
     () =>
       api.post<{ package: { remainingSessions: number } | null; plan: { id: string; planNo: string; prescribedSessions: number; readyToComplete: boolean } | null }>(`/therapy-sessions/${id}/complete`, {
         painBefore: before,
+        coverReason: coverReason.trim() || undefined,
         painAfter,
         progressRating: rating,
         notes: notes.trim() || undefined,
@@ -68,8 +70,16 @@ export default function SessionScreen() {
     },
   );
 
-  // Same rule as the API: the treating physiotherapist (or a Super Admin) runs the session.
-  const mine = user?.role === "SUPER_ADMIN" || (user?.role === "PHYSIOTHERAPIST" && user.therapistId === s?.therapist.id);
+  // Any physiotherapist (or Super Admin) can run a session; if it isn't theirs they must say why.
+  const canAct = user?.role === "SUPER_ADMIN" || user?.role === "PHYSIOTHERAPIST";
+  const isOwner = user?.role === "SUPER_ADMIN" || (!!s && user?.therapistId === s.therapist.id);
+  const needsReason = canAct && !isOwner && !s?.coverReason;
+  const reasonMissing = needsReason && coverReason.trim().length < 3;
+  const reasonField = needsReason ? (
+    <Field label={`Reason for taking this session from ${s?.therapist.user.name ?? "the assigned physio"} *`}>
+      <Input multiline value={coverReason} onChangeText={setCoverReason} placeholder="e.g. Assigned physio is on leave / running late" />
+    </Field>
+  ) : null;
   const back = () => (router.canGoBack() ? router.back() : router.replace("/sessions"));
 
   return (
@@ -113,14 +123,19 @@ export default function SessionScreen() {
             </Card>
           ) : null}
 
-          {!mine ? (
-            <Card><Muted>This session belongs to {s.therapist.user.name}. Only they can start or complete it.</Muted></Card>
+          {s.coverReason ? (
+            <Card><Muted>Taken over by {s.coveredByName ?? "another physiotherapist"} instead of {s.therapist.user.name}: {s.coverReason}</Muted></Card>
+          ) : null}
+
+          {!canAct ? (
+            <Card><Muted>Only physiotherapists can start or complete a session.</Muted></Card>
           ) : s.status === "SCHEDULED" ? (
             <Card>
               <H2>Start session</H2>
               <PainScale label="Pain before treatment" value={before} onChange={setPainBefore} />
+              {reasonField}
               <ErrorBox error={start.error} />
-              <Button title="Start session" icon="play-circle-outline" onPress={() => start.mutate()} loading={start.isPending} />
+              <Button title="Start session" icon="play-circle-outline" onPress={() => start.mutate()} loading={start.isPending} disabled={reasonMissing} />
             </Card>
           ) : s.status === "IN_PROGRESS" ? (
             <Card style={{ gap: space.md }}>
@@ -153,8 +168,9 @@ export default function SessionScreen() {
 
               <Field label="Session notes"><Input multiline value={notes} onChangeText={setNotes} placeholder="How did the patient respond?" /></Field>
               <Field label="Home advice"><Input multiline value={advice} onChangeText={setAdvice} placeholder="Exercises to do at home" /></Field>
+              {reasonField}
               <ErrorBox error={complete.error} />
-              <Button title="Complete session" variant="gold" icon="checkmark-done-outline" onPress={() => complete.mutate()} loading={complete.isPending} />
+              <Button title="Complete session" variant="gold" icon="checkmark-done-outline" onPress={() => complete.mutate()} loading={complete.isPending} disabled={reasonMissing} />
             </Card>
           ) : (
             <Card>

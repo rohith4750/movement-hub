@@ -36,6 +36,18 @@ async function ownSession(req: Request, id: string) {
   return s;
 }
 
+/**
+ * Any physiotherapist can run any session, but when it isn't theirs they must say why.
+ * Returns the cover fields to save on the session (empty when the assigned physio is acting).
+ */
+async function coverFields(req: Request, s: { therapistId: string }, reason?: string) {
+  if (req.user!.therapistId === s.therapistId) return {};
+  const why = reason?.trim();
+  if (!why || why.length < 3) throw unprocessable("COVER_REASON_REQUIRED", "This session is assigned to another physiotherapist. Enter the reason you are taking it.");
+  const u = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { name: true } });
+  return { coverReason: why, coveredByName: u?.name ?? null };
+}
+
 const listQuery = paginationQuery.extend({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   therapistId: z.string().uuid().optional(),
@@ -94,10 +106,11 @@ therapySessionRouter.get(
 therapySessionRouter.post(
   "/:id/start",
   authorize("PHYSIOTHERAPIST"),
-  validate({ params: idParam, body: z.object({ painBefore: pain }) }),
+  validate({ params: idParam, body: z.object({ painBefore: pain, coverReason: z.string().max(500).optional() }) }),
   handler(async (req, res) => {
     const s = await ownSession(req, req.params.id);
     if (s.status !== "SCHEDULED") throw unprocessable("INVALID_STATUS", `Session is ${s.status}`);
+    const cover = await coverFields(req, s, req.body.coverReason);
     const updated = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "TherapySession" WHERE "id" = ${s.id} FOR UPDATE`;
       const fresh = await tx.therapySession.findUniqueOrThrow({ where: { id: s.id }, select: { status: true } });
@@ -105,7 +118,7 @@ therapySessionRouter.post(
       const appt = await tx.appointment.findUniqueOrThrow({ where: { id: s.appointmentId } });
       if (appt.status === "SCHEDULED" || appt.status === "CONFIRMED") await transition(tx, appt.id, "CHECKED_IN", req.user!.id, "Auto check-in at session start", { checkedInAt: new Date() });
       await transition(tx, appt.id, "IN_PROGRESS", req.user!.id);
-      return tx.therapySession.update({ where: { id: s.id }, data: { status: "IN_PROGRESS", painBefore: req.body.painBefore, startedAt: new Date() }, include });
+      return tx.therapySession.update({ where: { id: s.id }, data: { status: "IN_PROGRESS", painBefore: req.body.painBefore, startedAt: new Date(), ...cover }, include });
     });
     ok(res, updated);
   }),
@@ -137,11 +150,13 @@ therapySessionRouter.patch(
 therapySessionRouter.post(
   "/:id/complete",
   authorize("PHYSIOTHERAPIST"),
-  validate({ params: idParam, body: updateBody.extend({ painAfter: pain, exercises: z.array(exercise).default([]) }) }),
+  validate({ params: idParam, body: updateBody.extend({ painAfter: pain, coverReason: z.string().max(500).optional(), exercises: z.array(exercise).default([]) }) }),
   handler(async (req, res) => {
     const s = await ownSession(req, req.params.id);
     if (s.status !== "IN_PROGRESS" && s.status !== "SCHEDULED") throw unprocessable("INVALID_STATUS", `Session is ${s.status}`);
-    const { exercises, ...data } = req.body;
+    const { exercises, coverReason, ...data } = req.body;
+    // Already taken over at start? Keep that reason; otherwise a non-assigned physio must give one now.
+    const cover = s.coverReason ? {} : await coverFields(req, s, coverReason);
     const result = await prisma.$transaction(async (tx) => {
       // Lock the session and re-check its status: a double tap or retried request waits here,
       // then sees COMPLETED and stops, so the package is charged exactly once.
@@ -154,7 +169,7 @@ therapySessionRouter.post(
       if (exercises.length) await tx.sessionExercise.createMany({ data: exercises.map((e: z.infer<typeof exercise>) => ({ ...e, therapySessionId: s.id })) });
       const session = await tx.therapySession.update({
         where: { id: s.id },
-        data: { ...data, status: "COMPLETED", startedAt: s.startedAt ?? new Date(), completedAt: new Date() },
+        data: { ...data, ...cover, status: "COMPLETED", startedAt: s.startedAt ?? new Date(), completedAt: new Date() },
         include,
       });
       const pkg = s.patientPackageId ? await useSession(tx, s.patientPackageId, s.id, req.user!.id) : null;

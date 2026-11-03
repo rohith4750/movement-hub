@@ -150,6 +150,8 @@ export interface TherapySession {
   notes: string | null;
   homeAdvice: string | null;
   progressRating: number | null;
+  coverReason: string | null;
+  coveredByName: string | null;
   patient: { id: string; patientCode: string; firstName: string; lastName: string | null };
   therapist: { id: string; user: { name: string } };
   appointment: { id: string; appointmentNo: string; startAt: string; endAt: string; status: string };

@@ -788,6 +788,8 @@ model TherapySession {
   notes            String?
   homeAdvice       String?
   progressRating   Int?          // 1–5
+  coverReason      String?       // why a physio other than the assigned one ran the session
+  coveredByName    String?       // that physio's name
   startedAt        DateTime?
   completedAt      DateTime?
   createdAt        DateTime      @default(now())
