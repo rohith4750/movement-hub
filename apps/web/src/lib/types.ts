@@ -4,6 +4,7 @@ export interface Patient {
   firstName: string;
   lastName: string | null;
   gender: "MALE" | "FEMALE" | "OTHER";
+  patientType?: "REGULAR" | "WALK_IN";
   dateOfBirth: string | null;
   phone: string;
   email: string | null;

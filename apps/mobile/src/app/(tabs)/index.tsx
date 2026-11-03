@@ -18,7 +18,7 @@ export default function TodayScreen() {
   const canSeeMoney = hasRole(user, "ADMIN", "ACCOUNTANT");
   const isOwner = hasRole(user, "ADMIN"); // Super Admin / admin: clinic-wide figures
   const dash = useDashboard();
-  const todays = useAppointmentsOn(today());
+  const todays = useAppointmentsOn(today(), false);
 
   const upcoming = (todays.data ?? []).filter((a) => ACTIVE.includes(a.status) && new Date(a.endAt) > new Date());
   const done = (todays.data ?? []).filter((a) => a.status === "COMPLETED").length;
@@ -50,11 +50,11 @@ export default function TodayScreen() {
         <ErrorBox error={dash.error} onRetry={() => dash.refetch()} />
       ) : dash.data ? (
         <View style={styles.grid}>
-          <Stat label={isPhysio ? "My visits today" : "Visits today"} value={dash.data.todayAppointments} />
-          <Stat label="Completed" value={isPhysio ? done : dash.data.completedSessionsToday} />
+          <Stat label="Visits today" value={dash.data.todayAppointments} />
+          <Stat label="Completed" value={dash.data.completedSessionsToday} />
           <Stat label="Pending" value={dash.data.pendingAppointments} hint="awaiting confirmation" />
           {canSeeMoney && dash.data.revenueToday !== null ? (
-            <Stat label={isPhysio ? "I collected today" : "Collected today"} value={inr(dash.data.revenueToday)} hint={`Month ${inr(dash.data.revenueMonth)}`} />
+            <Stat label="Collected today" value={inr(dash.data.revenueToday)} hint={`Month ${inr(dash.data.revenueMonth)}`} />
           ) : (
             <Stat label="Physios free" value={dash.data.availableTherapists} />
           )}
@@ -70,7 +70,7 @@ export default function TodayScreen() {
       {/* Today's list */}
       <View style={{ gap: space.sm }}>
         <Row style={{ justifyContent: "space-between" }}>
-          <H2>{isPhysio ? "My next patients" : "Coming up today"}</H2>
+          <H2>Coming up today</H2>
           <Pressable onPress={() => router.push("/appointments")} hitSlop={8}>
             <Text weight="semibold" style={{ color: colors.gold700, fontSize: 13 }}>See full day</Text>
           </Pressable>
@@ -84,12 +84,12 @@ export default function TodayScreen() {
             <Empty icon="checkmark-done-outline" title="Nothing else today" message={done ? `${done} visit${done > 1 ? "s" : ""} completed.` : undefined} />
           </Card>
         ) : (
-          upcoming.slice(0, 6).map((a) => <AppointmentCard key={a.id} a={a} showTherapist={!isPhysio} />)
+          upcoming.slice(0, 6).map((a) => <AppointmentCard key={a.id} a={a} showTherapist={true} />)
         )}
       </View>
 
-      {/* Physio utilisation (admin / reception) */}
-      {!isPhysio && dash.data?.therapistUtilization.length ? (
+      {/* Physio utilisation */}
+      {dash.data?.therapistUtilization.length ? (
         <Card>
           <H2>Physiotherapists today</H2>
           {dash.data.therapistUtilization.map((t) => (
@@ -109,28 +109,32 @@ export default function TodayScreen() {
 
 function Stat({ label: l, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
-    <View style={styles.stat}>
-      <Muted style={{ fontSize: 11 }}>{l}</Muted>
-      <Text weight="bold" style={{ fontSize: 22, color: colors.navy700 }} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
-      {hint ? <Muted style={{ fontSize: 10 }}>{hint}</Muted> : null}
-    </View>
+    <Card style={styles.statCard}>
+      <Muted style={{ fontSize: 12 }}>{l}</Muted>
+      <Text weight="bold" style={{ fontSize: 22, color: colors.navy700 }}>
+        {value}
+      </Text>
+      {hint ? <Muted style={{ fontSize: 11 }}>{hint}</Muted> : null}
+    </Card>
   );
 }
 
 function QuickAction({ icon, label: l, onPress }: { icon: ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={l} style={({ pressed }) => [styles.quick, pressed && { opacity: 0.85 }]}>
-      <View style={styles.quickIcon}>
+    <Pressable style={({ pressed }) => [styles.action, pressed && { opacity: 0.8 }]} onPress={onPress} accessibilityRole="button">
+      <View style={styles.actionIcon}>
         <Ionicons name={icon} size={22} color={colors.navy700} />
       </View>
-      <Text weight="semibold" style={{ fontSize: 12, color: colors.navy700, textAlign: "center" }}>{l}</Text>
+      <Text weight="semibold" style={{ fontSize: 11, textAlign: "center", color: colors.navy700 }}>
+        {l}
+      </Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
-  stat: { flexBasis: "47%", flexGrow: 1, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, gap: 2 },
-  quick: { flex: 1, backgroundColor: colors.white, borderRadius: radius.lg, paddingVertical: space.md, alignItems: "center", gap: 6, borderWidth: 1, borderColor: colors.border },
-  quickIcon: { width: 44, height: 44, borderRadius: 4, backgroundColor: colors.gold100, alignItems: "center", justifyContent: "center" },
+  statCard: { width: "47.5%", padding: space.md },
+  action: { flex: 1, alignItems: "center", gap: space.xs },
+  actionIcon: { width: 48, height: 48, borderRadius: radius.md, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border },
 });

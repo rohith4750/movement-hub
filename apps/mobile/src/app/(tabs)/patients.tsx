@@ -76,7 +76,7 @@ export default function Patients() {
                   <Text weight="semibold" style={{ fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(p)}</Text>
                   <CategoryBadge visits={p.visits} />
                 </Row>
-                <Muted style={{ fontSize: 12 }} numberOfLines={1}>{p.patientCode} · {p.phone} · {label(p.gender)}{ageFrom(p.dateOfBirth) !== null ? ` · ${ageFrom(p.dateOfBirth)} yrs` : ""}</Muted>
+                <Muted style={{ fontSize: 12 }} numberOfLines={1}>{p.patientCode} · {p.patientType === "WALK_IN" ? "Walk-in" : "Regular"} · {p.phone} · {label(p.gender)}{ageFrom(p.dateOfBirth) !== null ? ` · ${ageFrom(p.dateOfBirth)} yrs` : ""}</Muted>
                 <VisitLine visits={p.visits} />
                 {p.primaryTherapist && !mine ? <Muted style={{ fontSize: 12 }} numberOfLines={1}>Physio: {p.primaryTherapist.user.name}</Muted> : null}
                 {p.treatmentPlans?.[0] ? <Muted style={{ fontSize: 12, color: colors.gold700 }} numberOfLines={1}>{p.treatmentPlans[0].title}</Muted> : null}

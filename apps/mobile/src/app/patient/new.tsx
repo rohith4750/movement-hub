@@ -8,9 +8,11 @@ import { useAction } from "@/lib/refresh";
 import { colors, space } from "@/theme";
 
 type Gender = "MALE" | "FEMALE" | "OTHER";
+type PatientType = "REGULAR" | "WALK_IN";
 
 const EMPTY = {
   firstName: "",
+  patientType: "REGULAR" as PatientType,
   lastName: "",
   phone: "",
   dateOfBirth: "",
@@ -57,6 +59,7 @@ function NewPatientForm() {
         firstName: f.firstName.trim(),
         lastName: f.lastName.trim() || undefined,
         gender,
+        patientType: f.patientType,
         dateOfBirth: f.dateOfBirth || undefined,
         phone: f.phone.trim(),
         email: f.email.trim() || undefined,
@@ -79,6 +82,12 @@ function NewPatientForm() {
         <Field label="First name *"><Input value={f.firstName} onChangeText={set("firstName")} autoCapitalize="words" autoComplete="given-name" /></Field>
         <Field label="Last name"><Input value={f.lastName} onChangeText={set("lastName")} autoCapitalize="words" autoComplete="family-name" /></Field>
         <Field label="Mobile number *"><Input value={f.phone} onChangeText={set("phone")} keyboardType="phone-pad" placeholder="98765 43210" maxLength={18} /></Field>
+        <Field label="Patient type *">
+          <Chips<PatientType> value={f.patientType} onChange={(t) => setF((x) => ({ ...x, patientType: t }))} options={[{ value: "REGULAR", label: "Regular" }, { value: "WALK_IN", label: "Walk-in" }]} />
+        </Field>
+        <Field label="Patient type *">
+          <Chips<PatientType> value={f.patientType} onChange={(t) => setF((x) => ({ ...x, patientType: t }))} options={[{ value: "REGULAR", label: "Regular" }, { value: "WALK_IN", label: "Walk-in" }]} />
+        </Field>
         <Field label="Gender *">
           <Chips<Gender> value={gender} onChange={setGender} options={[{ value: "FEMALE", label: "Female" }, { value: "MALE", label: "Male" }, { value: "OTHER", label: "Other" }]} />
         </Field>

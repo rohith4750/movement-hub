@@ -33,7 +33,6 @@ const include = {
 
 async function ownSession(req: Request, id: string) {
   const s = await prisma.therapySession.findFirstOrThrow({ where: { id, deletedAt: null } });
-  if (req.user!.role === "PHYSIOTHERAPIST" && req.user!.therapistId !== s.therapistId) throw forbidden("This session is assigned to another physiotherapist");
   return s;
 }
 
@@ -69,11 +68,11 @@ therapySessionRouter.get(
   "/today",
   authorize("PHYSIOTHERAPIST", "ADMIN", "RECEPTIONIST"),
   handler(async (req, res) => {
-    const therapistId = req.user!.role === "PHYSIOTHERAPIST" ? req.user!.therapistId ?? undefined : undefined;
+    const therapistId = (req.query.therapistId as string | undefined) ?? undefined;
     ok(
       res,
       await prisma.therapySession.findMany({
-        where: { deletedAt: null, therapistId, status: { not: "CANCELLED" }, appointment: { startAt: dayRange(todayLocal()) } },
+        where: { deletedAt: null, ...(therapistId ? { therapistId } : {}), status: { not: "CANCELLED" }, appointment: { startAt: dayRange(todayLocal()) } },
         include,
         orderBy: { appointment: { startAt: "asc" } },
       }),

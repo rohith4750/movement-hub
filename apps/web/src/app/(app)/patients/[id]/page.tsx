@@ -14,7 +14,7 @@ import type { PackageDef } from "@/lib/types";
 import { refresh } from "@/lib/invalidate";
 
 interface PatientDetail {
-  id: string; patientCode: string; firstName: string; lastName: string | null; gender: string; dateOfBirth: string | null; phone: string; email: string | null;
+  id: string; patientCode: string; patientType?: "REGULAR" | "WALK_IN"; firstName: string; lastName: string | null; gender: string; dateOfBirth: string | null; phone: string; email: string | null;
   emergencyName: string | null; emergencyPhone: string | null; referredBy: string | null; consentGiven: boolean;
   primaryTherapist: { id: string; user: { name: string } } | null;
   addresses: { id: string; label: string; line1: string; city: string; pincode: string }[];
@@ -68,7 +68,7 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
     <>
       <PageHeader
         title={fullName(d)}
-        subtitle={`${d.patientCode} · ${label(d.gender)}${age !== null ? ` · ${age} yrs` : ""} · ${d.phone}`}
+        subtitle={`${d.patientCode} · ${d.patientType === "WALK_IN" ? "Walk-in" : "Regular"} · ${label(d.gender)}${age !== null ? ` · ${age} yrs` : ""} · ${d.phone}`}
         actions={
           <>
             {hasRole(user, "ADMIN") && <button className="btn-ghost text-rose-600" onClick={() => { remove.reset(); setDeleting(true); }}><Trash2 size={16} /> Delete</button>}

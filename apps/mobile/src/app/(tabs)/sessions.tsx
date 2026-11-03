@@ -1,23 +1,37 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
+import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { Badge, BrandHeader, Empty, ErrorBox, Loading, Muted, Row, Screen, Text } from "@/components/ui";
+import { Badge, BrandHeader, Chips, Empty, ErrorBox, Loading, Muted, Row, Screen, Text } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { fullName, time } from "@/lib/format";
 import { useTodaySessions } from "@/lib/queries";
 import { colors, radius, shadow, space } from "@/theme";
 
-/** Today's therapy sessions — a physio's own list (admins see everyone's). */
+/** Today's therapy sessions — all clinic sessions by default, with option to filter to own. */
 export default function Sessions() {
   const user = useAuth((s) => s.user);
+  const isPhysio = user?.role === "PHYSIOTHERAPIST";
+  const [onlyMine, setOnlyMine] = useState(false);
   const q = useTodaySessions();
-  const list = q.data ?? [];
+  const rawList = q.data ?? [];
+  const list = isPhysio && onlyMine ? rawList.filter((s) => s.therapist.id === user?.therapistId) : rawList;
   const open = list.filter((s) => s.status === "SCHEDULED" || s.status === "IN_PROGRESS");
   const done = list.filter((s) => s.status === "COMPLETED");
 
   return (
     <Screen refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
-      <BrandHeader title="Therapy sessions" subtitle={user?.role === "PHYSIOTHERAPIST" ? "Your patients today" : "All physiotherapists today"} />
+      <BrandHeader title="Therapy sessions" subtitle="All therapy sessions today" />
+      {isPhysio ? (
+        <Chips<"all" | "mine">
+          value={onlyMine ? "mine" : "all"}
+          onChange={(v) => setOnlyMine(v === "mine")}
+          options={[
+            { value: "all", label: "All physios" },
+            { value: "mine", label: "My sessions" },
+          ]}
+        />
+      ) : null}
       {q.isLoading ? (
         <Loading />
       ) : q.error ? (
@@ -50,7 +64,7 @@ export default function Sessions() {
                   <Row gap={6}>
                     <Muted style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>
                       {s.patientPackage ? `${s.patientPackage.package.name} · ${s.patientPackage.remainingSessions} left` : "Pay per visit"}
-                      {user?.role !== "PHYSIOTHERAPIST" ? ` · ${s.therapist.user.name}` : ""}
+                      {` · ${s.therapist.user.name}`}
                     </Muted>
                     <Ionicons name="chevron-forward" size={16} color={colors.muted} />
                   </Row>

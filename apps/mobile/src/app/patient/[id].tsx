@@ -84,7 +84,7 @@ export default function PatientScreen() {
               <Text weight="bold" style={{ color: colors.white, fontSize: 20, flex: 1 }}>{fullName(p)}</Text>
               <CategoryBadge visits={p.visits} />
             </Row>
-            <Text style={{ color: colors.gold300 }}>{p.patientCode} · {label(p.gender)}{age !== null ? ` · ${age} yrs` : ""}</Text>
+            <Text style={{ color: colors.gold300 }}>{p.patientCode} · {p.patientType === "WALK_IN" ? "Walk-in" : "Regular"} · {label(p.gender)}{age !== null ? ` · ${age} yrs` : ""}</Text>
             {p.primaryTherapist ? <Text style={{ color: colors.navy100, fontSize: 13 }}>Regular physio: {p.primaryTherapist.user.name}</Text> : null}
             {p.visits ? <Text style={{ color: colors.navy100, fontSize: 13 }}>{visitSummary(p.visits)}</Text> : null}
             <Pressable onPress={() => Linking.openURL(`tel:${p.phone}`)} accessibilityRole="link" accessibilityLabel={`Call ${p.phone}`}>

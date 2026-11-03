@@ -82,7 +82,6 @@ consultationRouter.post(
     const appt = await prisma.appointment.findUniqueOrThrow({ where: { id: appointmentId } });
     if (!["INITIAL_CONSULTATION", "FOLLOW_UP_CONSULTATION"].includes(appt.type)) throw unprocessable("NOT_A_CONSULTATION", "Appointment is not a consultation");
     if (["CANCELLED", "NO_SHOW", "RESCHEDULED"].includes(appt.status)) throw unprocessable("INVALID_STATUS", `Appointment is ${appt.status}`);
-    if (req.user!.therapistId && appt.therapistId !== req.user!.therapistId) throw forbidden("This consultation is assigned to another physiotherapist");
 
     const c = await prisma.$transaction(async (tx) => {
       const consultation = await tx.consultation.create({
@@ -129,7 +128,6 @@ consultationRouter.patch(
   validate({ params: idParam, body: consultationBody.partial().extend({ finalize: z.boolean().optional() }) }),
   handler(async (req, res) => {
     const before = await prisma.consultation.findUniqueOrThrow({ where: { id: req.params.id } });
-    if (req.user!.therapistId && before.therapistId !== req.user!.therapistId) throw forbidden();
     const { followUpDate, finalize, ...data } = req.body;
     const c = await prisma.consultation.update({
       where: { id: before.id },
@@ -152,7 +150,6 @@ consultationRouter.put(
   validate({ params: idParam, body: assessmentBody }),
   handler(async (req, res) => {
     const c = await prisma.consultation.findUniqueOrThrow({ where: { id: req.params.id }, include: { assessment: true } });
-    if (req.user!.therapistId && c.therapistId !== req.user!.therapistId) throw forbidden();
     const a = await prisma.clinicalAssessment.upsert({ where: { consultationId: c.id }, create: { ...req.body, consultationId: c.id }, update: req.body });
     await audit(req, c.assessment ? "UPDATE" : "CREATE", "ClinicalAssessment", a.id, c.assessment, a);
     ok(res, a);

@@ -1,6 +1,7 @@
 export type AppointmentType = "INITIAL_CONSULTATION" | "FOLLOW_UP_CONSULTATION" | "THERAPY_SESSION" | "HOME_VISIT";
 /** Booked ahead, or a patient who walked in. */
 export type AppointmentSource = "SCHEDULED" | "WALK_IN";
+export type PatientType = "REGULAR" | "WALK_IN";
 /** NEW: no completed visit yet · REGULAR: ongoing care · OCCASIONAL: has visited, no ongoing care. */
 export type PatientCategory = "NEW" | "REGULAR" | "OCCASIONAL";
 
@@ -46,6 +47,7 @@ export interface Dashboard {
 }
 
 export interface PatientListItem {
+  patientType?: PatientType;
   id: string;
   patientCode: string;
   firstName: string;
@@ -61,6 +63,7 @@ export interface PatientListItem {
 }
 
 export interface PatientDetail {
+  patientType?: PatientType;
   id: string;
   patientCode: string;
   firstName: string;

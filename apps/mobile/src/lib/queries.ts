@@ -35,8 +35,8 @@ export function useDashboard() {
 
 /* ─────────────── Front desk ─────────────── */
 
-/** Appointments on a day. `mine` (default true) limits a physio to their own; false shows the whole clinic. */
-export function useAppointmentsOn(date: string, mine = true) {
+/** Appointments on a day. Defaults to whole clinic; `mine = true` limits a physio to their own. */
+export function useAppointmentsOn(date: string, mine = false) {
   const myId = useMyTherapistId();
   const therapistId = mine ? myId : undefined;
   return useQuery({

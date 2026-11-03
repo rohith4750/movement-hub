@@ -9,7 +9,7 @@ import { ageFrom, dobFromAge } from "@/lib/format";
 import type { Patient } from "@/lib/types";
 import { ErrorText, Field } from "./ui";
 
-const EMPTY = { firstName: "", lastName: "", gender: "MALE", dateOfBirth: "", phone: "", email: "", referredBy: "", line1: "", city: "", state: "", pincode: "", consentGiven: true };
+const EMPTY = { firstName: "", lastName: "", gender: "MALE", patientType: "REGULAR" as "REGULAR" | "WALK_IN", dateOfBirth: "", phone: "", email: "", referredBy: "", line1: "", city: "", state: "", pincode: "", consentGiven: true };
 
 /**
  * Patient registration form. Used on the Patients page (dialog) and inline on the booking page.
@@ -32,6 +32,7 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
         firstName: f.firstName.trim(),
         lastName: f.lastName.trim() || undefined,
         gender: f.gender,
+        patientType: f.patientType,
         dateOfBirth: f.dateOfBirth || undefined,
         phone: f.phone,
         email: f.email.trim() || undefined,
@@ -61,6 +62,18 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
       <Field label="First name *"><input className="input" required value={f.firstName} onChange={set("firstName")} autoFocus={compact} /></Field>
       <Field label="Last name"><input className="input" value={f.lastName} onChange={set("lastName")} /></Field>
       <Field label="Phone *"><input className="input" required inputMode="tel" placeholder="98765 43210" value={f.phone} onChange={set("phone")} /></Field>
+      <Field label="Patient type *">
+        <select className="input" value={f.patientType} onChange={set("patientType")}>
+          <option value="REGULAR">Regular</option>
+          <option value="WALK_IN">Walk-in</option>
+        </select>
+      </Field>
+      <Field label="Patient type *">
+        <select className="input" value={f.patientType} onChange={set("patientType")}>
+          <option value="REGULAR">Regular</option>
+          <option value="WALK_IN">Walk-in</option>
+        </select>
+      </Field>
       <Field label="Gender *">
         <select className="input" value={f.gender} onChange={set("gender")}><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select>
       </Field>

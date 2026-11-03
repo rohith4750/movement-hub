@@ -34,6 +34,7 @@ const patientBody = z.object({
   firstName: z.string().min(1),
   lastName: z.string().optional(),
   gender: z.enum(["MALE", "FEMALE", "OTHER"]),
+  patientType: z.enum(["REGULAR", "WALK_IN"]).default("REGULAR"),
   dateOfBirth: date.optional(),
   phone,
   email: z.string().email().optional(),
@@ -72,6 +73,7 @@ const historyBody = z.object({
 
 const listQuery = paginationQuery.extend({
   gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
+  patientType: z.enum(["REGULAR", "WALK_IN"]).optional(),
   /** Patients whose regular physio is this therapist. */
   therapistId: z.string().uuid().optional(),
   /** "true" = the signed-in physio's own regular patients. */
@@ -89,6 +91,7 @@ patientRouter.get(
     const where: Prisma.PatientWhereInput = {
       deletedAt: null,
       gender: query.gender,
+      patientType: query.patientType,
       primaryTherapistId: query.mine === "true" ? req.user!.therapistId ?? "__none__" : query.therapistId,
       ...(query.search
         ? {

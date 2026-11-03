@@ -35,7 +35,7 @@ reportRouter.get(
     const today = todayLocal();
     const todayR = dayRange(today);
     const monthR = { gte: dayRange(`${today.slice(0, 7)}-01`).gte, lt: todayR.lt };
-    const therapistId = req.user!.role === "PHYSIOTHERAPIST" ? req.user!.therapistId ?? undefined : undefined;
+    const therapistId = (req.query.therapistId as string | undefined) ?? undefined;
     const [totalPatients, todayAppointments, pendingAppointments, completedSessionsToday, therapists, slotCounts, revenueToday, revenueMonth, upcoming, newPatientsMonth] = await Promise.all([
       prisma.patient.count({ where: { deletedAt: null } }),
       prisma.appointment.count({ where: { startAt: todayR, therapistId, status: { notIn: ["CANCELLED", "RESCHEDULED"] } } }),

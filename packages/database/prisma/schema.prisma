@@ -25,6 +25,11 @@ enum Gender {
   OTHER
 }
 
+enum PatientType {
+  REGULAR
+  WALK_IN
+}
+
 enum DayOfWeek {
   MON
   TUE
@@ -314,6 +319,7 @@ model Patient {
   userId           String?   @unique
   branchId         String
   patientCode      String    @unique // e.g. MH-P-000123
+  patientType      PatientType @default(REGULAR)
   firstName        String
   lastName         String?
   gender           Gender

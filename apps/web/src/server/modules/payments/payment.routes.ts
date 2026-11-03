@@ -55,6 +55,7 @@ async function confirmPayment(paymentId: string, data: Prisma.PaymentUpdateInput
 /* ─────────────── List / offline ─────────────── */
 
 const listQuery = paginationQuery.extend({
+  therapistId: z.string().uuid().optional(),
   invoiceId: z.string().uuid().optional(),
   method: z.enum(["CASH", "CARD", "UPI", "NET_BANKING", "RAZORPAY"]).optional(),
   status: z.enum(["PENDING", "SUCCESS", "FAILED", "REFUNDED", "PARTIALLY_REFUNDED"]).optional(),
@@ -73,8 +74,8 @@ paymentRouter.get(
       method: query.method,
       status: query.status,
       ...(isPatient(req) ? { invoice: { patientId: req.user!.patientId! } } : {}),
-      // Physios see payments on their own patients' bills only.
-      ...(req.user!.role === "PHYSIOTHERAPIST" ? { invoice: { therapistId: billingScope(req.user) } } : {}),
+      // Payments visible across the clinic (or filtered if therapistId provided)
+      ...(query.therapistId ? { invoice: { therapistId: query.therapistId } } : {}),
       ...(query.from || query.to ? { createdAt: { ...(query.from ? { gte: dayRange(query.from).gte } : {}), ...(query.to ? { lt: dayRange(query.to).lt } : {}) } } : {}),
     };
     const [data, total] = await Promise.all([

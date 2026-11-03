@@ -1,5 +1,7 @@
 "use client";
 
+import clsx from "clsx";
+
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -49,12 +51,13 @@ export default function PatientsPage() {
         {isLoading ? <Spinner /> : error ? <ErrorText error={error} /> : !data?.data.length ? <Empty>No patients found.</Empty> : (
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Code</th><th>Name</th><th>Gender</th><th>Age</th><th>Phone</th><th>Physio</th><th>Active plan</th><th>Package</th><th>Registered</th><th /></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Gender</th><th>Age</th><th>Phone</th><th>Physio</th><th>Active plan</th><th>Package</th><th>Registered</th><th /></tr></thead>
               <tbody>
                 {data.data.map((p) => (
                   <tr key={p.id} className="hover:bg-navy-50/50">
                     <td className="font-mono text-xs">{p.patientCode}</td>
                     <td><Link href={`/patients/${p.id}`} className="font-semibold text-navy-700 hover:underline">{fullName(p)}</Link></td>
+                    <td><span className={clsx("badge", p.patientType === "WALK_IN" ? "badge-gold" : "badge-neutral")}>{p.patientType === "WALK_IN" ? "Walk-in" : "Regular"}</span></td>
                     <td>{label(p.gender)}</td>
                     <td>{ageFrom(p.dateOfBirth) ?? "—"}</td>
                     <td>{p.phone}</td>

@@ -12,6 +12,7 @@ import type { PatientDetail } from "@/lib/types";
 import { colors, space } from "@/theme";
 
 type Gender = "MALE" | "FEMALE" | "OTHER";
+type PatientType = "REGULAR" | "WALK_IN";
 
 export default function EditPatient() {
   return (

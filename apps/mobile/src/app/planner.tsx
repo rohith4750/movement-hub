@@ -129,7 +129,7 @@ function PlannerScreen() {
         <ErrorBox error={q.error} onRetry={() => q.refetch()} />
       ) : data ? (
         <>
-          <TherapistStrip therapists={data.therapists} focus={focus} onFocus={setFocus} showAll={!isPhysio} />
+          <TherapistStrip therapists={data.therapists} focus={focus} onFocus={setFocus} showAll={true} />
 
           {result ? <BookResult result={result} candidates={data.toPlan} onClose={() => setResult(null)} /> : null}
 

@@ -24,10 +24,16 @@ export async function sharePdfFromApi(path: string) {
   // The HTML includes a "Print" button meant for browsers — hide it in the PDF.
   const html = (await res.text()).replace("</head>", "<style>button{display:none!important}</style></head>");
 
-  if (await Sharing.isAvailableAsync()) {
-    const { uri } = await Print.printToFileAsync({ html });
-    await Sharing.shareAsync(uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf", dialogTitle: "Share PDF" });
-  } else {
-    await Print.printAsync({ html });
+  try {
+    if (await Sharing.isAvailableAsync()) {
+      const { uri } = await Print.printToFileAsync({ html });
+      await Sharing.shareAsync(uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf", dialogTitle: "Share PDF" });
+      return;
+    }
+  } catch (err) {
+    console.warn("[Billing Print] Sharing failed, falling back to native print dialog:", err);
   }
+
+  // Native print spooler (provides "Save as PDF" and physical printing without FileProvider permission issues)
+  await Print.printAsync({ html });
 }

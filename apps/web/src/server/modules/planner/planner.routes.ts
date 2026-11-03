@@ -42,10 +42,9 @@ plannerRouter.get(
   validate({ query: z.object({ date: date.optional(), therapistId: z.string().uuid().optional() }) }),
   handler(async (req, res) => {
     const day = (req.query.date as string | undefined) ?? addDays(todayLocal(), 1);
-    // A physio plans their own day only (their slots, visits and patients); the Super Admin sees
-    // every physio and may narrow to one.
-    const mine = req.user!.role === "PHYSIOTHERAPIST" ? req.user!.therapistId ?? "__none__" : undefined;
-    const onlyTherapist = mine ?? (req.query.therapistId as string | undefined);
+    // Every physio can see and plan the whole clinic; optionally narrow to one.
+    const onlyTherapist = req.query.therapistId as string | undefined;
+    const mine = onlyTherapist;
     const range = dayRange(day);
 
     const therapists = await prisma.therapist.findMany({
@@ -310,14 +309,7 @@ plannerRouter.post(
   handler(async (req, res) => {
     const items = req.body.items as z.infer<typeof bookItem>[];
     const results: { patientId: string; slotId: string; ok: boolean; appointmentId?: string; appointmentNo?: string; error?: string; code?: string }[] = [];
-    // A physio books into their own time only.
-    const mine = req.user!.role === "PHYSIOTHERAPIST" ? req.user!.therapistId : null;
-    const own = mine ? new Set((await prisma.therapistSlot.findMany({ where: { id: { in: items.map((i) => i.slotId) }, therapistId: mine }, select: { id: true } })).map((x) => x.id)) : null;
     for (const item of items) {
-      if (own && !own.has(item.slotId)) {
-        results.push({ patientId: item.patientId, slotId: item.slotId, ok: false, error: "You can only book into your own time slots.", code: "NOT_YOUR_SLOT" });
-        continue;
-      }
       try {
         const a = await book({ ...item, source: "SCHEDULED", notes: item.notes ?? "Booked from the day planner" }, req.user!.id);
         await audit(req, "CREATE", "Appointment", a.id, null, { ...a, via: "planner" });

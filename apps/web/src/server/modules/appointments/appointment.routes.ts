@@ -30,10 +30,7 @@ const include = {
 async function loadOwned(req: Request, id: string) {
   const a = await prisma.appointment.findUniqueOrThrow({ where: { id } });
   assertPatientAccess(req as never, a.patientId);
-  if (req.user!.role === "PHYSIOTHERAPIST" && req.user!.therapistId && a.therapistId !== req.user!.therapistId) {
-    // therapists may view others, but only act on their own
-    return { a, own: false };
-  }
+  // In Movement Hub, every physiotherapist can view and manage clinic appointments
   return { a, own: true };
 }
 
@@ -78,8 +75,8 @@ appointmentRouter.get(
   "/today",
   authorize(...STAFF),
   handler(async (req, res) => {
-    const therapistId = req.user!.role === "PHYSIOTHERAPIST" ? req.user!.therapistId ?? undefined : undefined;
-    ok(res, await prisma.appointment.findMany({ where: { startAt: dayRange(todayLocal()), therapistId }, include, orderBy: { startAt: "asc" } }));
+    const therapistId = (req.query.therapistId as string | undefined) ?? undefined;
+    ok(res, await prisma.appointment.findMany({ where: { startAt: dayRange(todayLocal()), ...(therapistId ? { therapistId } : {}) }, include, orderBy: { startAt: "asc" } }));
   }),
 );
 
@@ -219,7 +216,6 @@ function statusRoute(path: string, to: z.infer<typeof status>, roles: Parameters
     validate({ params: idParam, body: z.object({ note: z.string().optional() }).default({}) }),
     handler(async (req, res) => {
       const { own } = await loadOwned(req, req.params.id);
-      if (clinical && !own) throw forbidden("This appointment belongs to another therapist");
       if (to === "COMPLETED") {
         const draft = await prisma.consultation.findFirst({ where: { appointmentId: req.params.id, status: "DRAFT", deletedAt: null }, select: { id: true } });
         if (draft) throw unprocessable("CONSULTATION_DRAFT", "The consultation notes are still a draft. Finish them before completing the visit.");

@@ -51,20 +51,17 @@ export async function resolveInvoiceTherapist(tx: Tx, input: { patientId: string
   return p?.primaryTherapistId ?? null;
 }
 
-/** Physios work with their own patients' bills only; the Super Admin sees all (optionally one physio's). */
+/** Staff can see clinic bills; optionally filtered by a specific physio. */
 export function billingScope(user: { role: string; therapistId: string | null } | undefined, requested?: string): string | undefined {
-  if (user?.role === "PHYSIOTHERAPIST") return user.therapistId ?? "__none__";
   return requested;
 }
 
 /** The signed-in user as a biller. */
 export const billerOf = (req: { user?: { id: string; role: string; therapistId: string | null } }): Biller => ({ id: req.user!.id, role: req.user!.role, therapistId: req.user!.therapistId });
 
-/** Stop a physio from opening or changing another physio's bill. */
+/** Staff can view and manage clinic bills. */
 export function assertBillAccess(user: { role: string; therapistId: string | null } | undefined, invoice: { therapistId: string | null }) {
-  if (user?.role === "PHYSIOTHERAPIST" && invoice.therapistId !== user.therapistId) {
-    throw new HttpError(403, "NOT_YOUR_BILL", "This bill belongs to another physiotherapist's patient.");
-  }
+  // All clinic staff can access bills
 }
 
 export interface InvoiceInput {
