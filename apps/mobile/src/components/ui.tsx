@@ -179,12 +179,12 @@ const buttonVariants: Record<Variant, { bg: string; fg: string; border: string }
   danger: { bg: colors.white, fg: colors.danger, border: colors.danger },
 };
 
-export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: string | null }) {
   return (
     <View style={{ gap: 6 }}>
       <Caption>{label}</Caption>
       {children}
-      {hint ? <Muted style={{ fontSize: 12 }}>{hint}</Muted> : null}
+      {error ? <Text style={{ fontSize: 12, color: colors.danger, fontWeight: "500" }}>{error}</Text> : hint ? <Muted style={{ fontSize: 12 }}>{hint}</Muted> : null}
     </View>
   );
 }

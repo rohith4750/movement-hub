@@ -74,11 +74,12 @@ export function Empty({ children }: { children: ReactNode }) {
   return <p className="p-8 text-center text-sm text-navy-500">{children}</p>;
 }
 
-export function Field({ label: l, children }: { label: string; children: ReactNode }) {
+export function Field({ label: l, children, error }: { label: string; children: ReactNode; error?: string | null }) {
   return (
     <label className="block">
       <span className="label">{l}</span>
       {children}
+      {error && <span className="mt-1 block text-xs font-medium text-rose-600">{error}</span>}
     </label>
   );
 }

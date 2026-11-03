@@ -19,12 +19,40 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
   const qc = useQueryClient();
   const user = useAuth((s) => s.user);
   const [f, setF] = useState(EMPTY);
+  const [submitted, setSubmitted] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+
   // Regular physio: defaults to the physio registering the patient.
   const [physio, setPhysio] = useState<string | null>(null);
   const therapists = useQuery({ queryKey: ["therapists"], queryFn: () => api.get<{ id: string; user: { name: string } }[]>("/therapists") });
   const primaryTherapistId = physio ?? (user?.role === "PHYSIOTHERAPIST" ? user.therapistId ?? "" : "");
   const [more, setMore] = useState(!compact);
+
   const set = (k: keyof typeof EMPTY) => (e: { target: { value: string; checked?: boolean; type?: string } }) => setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+  const mark = (k: string) => setTouched((x) => ({ ...x, [k]: true }));
+
+  const errors: Record<string, string | undefined> = {};
+  if (!f.firstName.trim()) errors.firstName = "First name is required";
+  const cleanPhone = f.phone.replace(/\D/g, "");
+  if (!cleanPhone) {
+    errors.phone = "Mobile number is required";
+  } else if (cleanPhone.length < 10) {
+    errors.phone = "Enter a valid 10-digit mobile number";
+  }
+  if (f.email.trim() && !/^\S+@\S+\.\S+$/.test(f.email.trim())) {
+    errors.email = "Enter a valid email address";
+  }
+  if (f.line1.trim()) {
+    if (!f.city.trim()) errors.city = "City is required for address";
+    if (!f.state.trim()) errors.state = "State is required for address";
+    if (!f.pincode.trim()) {
+      errors.pincode = "Pincode is required";
+    } else if (!/^\d{6}$/.test(f.pincode.trim())) {
+      errors.pincode = "Pincode must be 6 digits";
+    }
+  }
+
+  const err = (k: string) => ((submitted || touched[k]) ? errors[k] : undefined);
 
   const m = useMutation({
     mutationFn: () =>
@@ -45,12 +73,16 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
       qc.invalidateQueries({ queryKey: ["patients"] });
       setF(EMPTY);
       setPhysio(null);
+      setSubmitted(false);
+      setTouched({});
       onCreated(p);
     },
   });
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    setSubmitted(true);
+    if (Object.keys(errors).length > 0) return;
     m.mutate();
   };
 
@@ -58,16 +90,10 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
   const full = compact ? "col-span-2" : "md:col-span-2";
 
   return (
-    <form onSubmit={submit} className={grid}>
-      <Field label="First name *"><input className="input" required value={f.firstName} onChange={set("firstName")} autoFocus={compact} /></Field>
+    <form onSubmit={submit} className={grid} noValidate>
+      <Field label="First name *" error={err("firstName")}><input className="input" value={f.firstName} onChange={set("firstName")} onBlur={() => mark("firstName")} autoFocus={compact} /></Field>
       <Field label="Last name"><input className="input" value={f.lastName} onChange={set("lastName")} /></Field>
-      <Field label="Phone *"><input className="input" required inputMode="tel" placeholder="98765 43210" value={f.phone} onChange={set("phone")} /></Field>
-      <Field label="Patient type *">
-        <select className="input" value={f.patientType} onChange={set("patientType")}>
-          <option value="REGULAR">Regular</option>
-          <option value="WALK_IN">Walk-in</option>
-        </select>
-      </Field>
+      <Field label="Phone *" error={err("phone")}><input className="input" inputMode="tel" placeholder="98765 43210" value={f.phone} onChange={set("phone")} onBlur={() => mark("phone")} /></Field>
       <Field label="Patient type *">
         <select className="input" value={f.patientType} onChange={set("patientType")}>
           <option value="REGULAR">Regular</option>
@@ -92,7 +118,7 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
           />
         </Field>
       </div>
-      <Field label="Email"><input className="input" type="email" value={f.email} onChange={set("email")} /></Field>
+      <Field label="Email" error={err("email")}><input className="input" type="email" value={f.email} onChange={set("email")} onBlur={() => mark("email")} /></Field>
       <Field label="Regular physiotherapist">
         <select className="input" value={primaryTherapistId} onChange={(e) => setPhysio(e.target.value)}>
           <option value="">None</option>
@@ -106,10 +132,10 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
       {more && (
         <>
           <div className={full}><Field label="Address"><input className="input" value={f.line1} onChange={set("line1")} /></Field></div>
-          <Field label="City"><input className="input" value={f.city} onChange={set("city")} /></Field>
+          <Field label="City" error={err("city")}><input className="input" value={f.city} onChange={set("city")} onBlur={() => mark("city")} /></Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="State"><input className="input" value={f.state} onChange={set("state")} /></Field>
-            <Field label="Pincode"><input className="input" inputMode="numeric" maxLength={6} value={f.pincode} onChange={set("pincode")} /></Field>
+            <Field label="State" error={err("state")}><input className="input" value={f.state} onChange={set("state")} onBlur={() => mark("state")} /></Field>
+            <Field label="Pincode" error={err("pincode")}><input className="input" inputMode="numeric" maxLength={6} value={f.pincode} onChange={set("pincode")} onBlur={() => mark("pincode")} /></Field>
           </div>
           <div className={full}><Field label="Referred by"><input className="input" value={f.referredBy} onChange={set("referredBy")} /></Field></div>
         </>

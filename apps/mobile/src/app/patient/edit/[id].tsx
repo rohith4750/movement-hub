@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Switch } from "react-native";
@@ -7,6 +6,7 @@ import { Button, Card, Chips, ErrorBox, Field, Input, Loading, Muted, Row, Scree
 import { api } from "@/lib/api";
 import { fullName } from "@/lib/format";
 import { qk } from "@/lib/query-keys";
+import { useQuery } from "@tanstack/react-query";
 import { useAction } from "@/lib/refresh";
 import type { PatientDetail } from "@/lib/types";
 import { colors, space } from "@/theme";
@@ -35,7 +35,6 @@ function EditPatientLoader() {
   );
 }
 
-/** Mounted only after the patient loads, so the form starts from the saved values. */
 function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?: boolean; occupation?: string | null } }) {
   const [f, setF] = useState({
     firstName: patient.firstName,
@@ -49,19 +48,31 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
     emergencyPhone: patient.emergencyPhone ?? "",
   });
   const [gender, setGender] = useState<Gender>((patient.gender as Gender) ?? "OTHER");
+  const [patientType, setPatientType] = useState<PatientType>((patient.patientType as PatientType) ?? "REGULAR");
   const [consent, setConsent] = useState(!!patient.consentGiven);
   const [physio, setPhysio] = useState(patient.primaryTherapistId ?? "");
-  const set = (k: keyof typeof f) => (t: string) => setF((x) => ({ ...x, [k]: t }));
+  const [submitted, setSubmitted] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  const problem = !f.firstName.trim()
-    ? "Enter the first name"
-    : f.phone.replace(/\D/g, "").length < 10
-      ? "Enter a valid mobile number"
-      : f.email.trim() && !/^\S+@\S+\.\S+$/.test(f.email.trim())
-        ? "Email looks invalid"
-        : f.emergencyPhone.trim() && f.emergencyPhone.replace(/\D/g, "").length < 10
-          ? "Emergency phone looks invalid"
-          : null;
+  const set = (k: keyof typeof f) => (t: string) => setF((x) => ({ ...x, [k]: t }));
+  const mark = (k: string) => setTouched((x) => ({ ...x, [k]: true }));
+
+  const errors: Record<string, string | undefined> = {};
+  if (!f.firstName.trim()) errors.firstName = "First name is required";
+  const cleanPhone = f.phone.replace(/\D/g, "");
+  if (!cleanPhone) {
+    errors.phone = "Mobile number is required";
+  } else if (cleanPhone.length < 10) {
+    errors.phone = "Enter a valid 10-digit mobile number";
+  }
+  if (f.email.trim() && !/^\S+@\S+\.\S+$/.test(f.email.trim())) {
+    errors.email = "Enter a valid email address";
+  }
+  if (f.emergencyPhone.trim() && f.emergencyPhone.replace(/\D/g, "").length < 10) {
+    errors.emergencyPhone = "Enter a valid emergency phone number";
+  }
+
+  const err = (k: string) => ((submitted || touched[k]) ? errors[k] : undefined);
 
   const save = useAction(
     () =>
@@ -69,6 +80,7 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
         firstName: f.firstName.trim(),
         lastName: f.lastName.trim() || undefined,
         gender,
+        patientType,
         dateOfBirth: f.dateOfBirth || undefined,
         phone: f.phone.trim(),
         email: f.email.trim() || undefined,
@@ -82,6 +94,12 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
     { refresh: ["patients"], onSuccess: () => goBack({ pathname: "/patient/[id]", params: { id: patient.id } }) },
   );
 
+  const handleSave = () => {
+    setSubmitted(true);
+    if (Object.keys(errors).length > 0) return;
+    save.mutate();
+  };
+
   return (
     <Screen edges={["top", "bottom"]}>
       <TopBar title={`Edit ${fullName(patient)}`} onBack={() => (router.canGoBack() ? router.back() : router.replace({ pathname: "/patient/[id]", params: { id: patient.id } }))} />
@@ -89,23 +107,42 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
 
       <Card style={{ gap: space.md }}>
         <SectionTitle>Personal details</SectionTitle>
-        <Field label="First name *"><Input value={f.firstName} onChangeText={set("firstName")} autoCapitalize="words" /></Field>
-        <Field label="Last name"><Input value={f.lastName} onChangeText={set("lastName")} autoCapitalize="words" /></Field>
-        <Field label="Mobile number *"><Input value={f.phone} onChangeText={set("phone")} keyboardType="phone-pad" maxLength={18} /></Field>
+        <Field label="First name *" error={err("firstName")}>
+          <Input value={f.firstName} onChangeText={set("firstName")} onBlur={() => mark("firstName")} autoCapitalize="words" />
+        </Field>
+        <Field label="Last name">
+          <Input value={f.lastName} onChangeText={set("lastName")} autoCapitalize="words" />
+        </Field>
+        <Field label="Mobile number *" error={err("phone")}>
+          <Input value={f.phone} onChangeText={set("phone")} onBlur={() => mark("phone")} keyboardType="phone-pad" maxLength={18} />
+        </Field>
+        <Field label="Patient type">
+          <Chips<PatientType> value={patientType} onChange={setPatientType} options={[{ value: "REGULAR", label: "Regular" }, { value: "WALK_IN", label: "Walk-in" }]} />
+        </Field>
         <Field label="Gender">
           <Chips<Gender> value={gender} onChange={setGender} options={[{ value: "FEMALE", label: "Female" }, { value: "MALE", label: "Male" }, { value: "OTHER", label: "Other" }]} />
         </Field>
         <DobAgeFields dob={f.dateOfBirth} onDob={set("dateOfBirth")} clearable />
-        <Field label="Email"><Input value={f.email} onChangeText={set("email")} keyboardType="email-address" autoCapitalize="none" /></Field>
-        <Field label="Occupation"><Input value={f.occupation} onChangeText={set("occupation")} /></Field>
-        <Field label="Referred by"><Input value={f.referredBy} onChangeText={set("referredBy")} /></Field>
+        <Field label="Email" error={err("email")}>
+          <Input value={f.email} onChangeText={set("email")} onBlur={() => mark("email")} keyboardType="email-address" autoCapitalize="none" />
+        </Field>
+        <Field label="Occupation">
+          <Input value={f.occupation} onChangeText={set("occupation")} />
+        </Field>
+        <Field label="Referred by">
+          <Input value={f.referredBy} onChangeText={set("referredBy")} />
+        </Field>
         <RegularPhysioField value={physio} onChange={setPhysio} />
       </Card>
 
       <Card style={{ gap: space.md }}>
         <SectionTitle>Emergency contact</SectionTitle>
-        <Field label="Name"><Input value={f.emergencyName} onChangeText={set("emergencyName")} autoCapitalize="words" /></Field>
-        <Field label="Phone"><Input value={f.emergencyPhone} onChangeText={set("emergencyPhone")} keyboardType="phone-pad" maxLength={18} /></Field>
+        <Field label="Name">
+          <Input value={f.emergencyName} onChangeText={set("emergencyName")} autoCapitalize="words" />
+        </Field>
+        <Field label="Phone" error={err("emergencyPhone")}>
+          <Input value={f.emergencyPhone} onChangeText={set("emergencyPhone")} onBlur={() => mark("emergencyPhone")} keyboardType="phone-pad" maxLength={18} />
+        </Field>
       </Card>
 
       <Card>
@@ -116,8 +153,7 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
       </Card>
 
       <ErrorBox error={save.error} />
-      {problem ? <Muted style={{ fontSize: 12, color: colors.warning }}>{problem}</Muted> : null}
-      <Button title="Save changes" icon="save-outline" onPress={() => save.mutate()} disabled={!!problem} loading={save.isPending} />
+      <Button title="Save changes" icon="save-outline" onPress={handleSave} loading={save.isPending} />
     </Screen>
   );
 }
