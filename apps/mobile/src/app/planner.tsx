@@ -10,6 +10,7 @@ import { addDays, clock, date, dayParts, fullName, hhmm, label, time, today } fr
 import { usePlannerStore, type PlanPick } from "@/lib/planner-store";
 import { usePlanner } from "@/lib/queries";
 import { useAction } from "@/lib/refresh";
+import { useAuth } from "@/lib/auth";
 import { CATEGORY_LABEL, type PlannerAppointment, type PlannerBookResult, type PlannerCandidate, type PlannerDay, type PlannerSlot, type PlannerTherapist } from "@/lib/types";
 import { colors, radius, space } from "@/theme";
 
@@ -37,6 +38,8 @@ function PlannerScreen() {
 
   const q = usePlanner(day);
   const draft = usePlannerStore((s) => s.days[day] ?? EMPTY);
+  // The server gives a physio only their own day; the Super Admin sees every physio.
+  const isPhysio = useAuth((s) => s.user?.role === "PHYSIOTHERAPIST");
   const { seed, toggle, setAll, pick, drop } = usePlannerStore.getState();
 
   // Seed ticks / suggested slots whenever fresh suggestions arrive (keeps the user's own changes).
@@ -93,7 +96,8 @@ function PlannerScreen() {
 
   return (
     <Screen edges={["top", "bottom"]} refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
-      <TopBar title="Day planner" onBack={() => goBack("/more")} />
+      <TopBar title={isPhysio ? "My day planner" : "Day planner"} onBack={() => goBack("/more")} />
+      {isPhysio ? <Muted style={{ fontSize: 12 }}>Your slots, your booked visits and your patients to book.</Muted> : null}
 
       {/* Day */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
@@ -125,7 +129,7 @@ function PlannerScreen() {
         <ErrorBox error={q.error} onRetry={() => q.refetch()} />
       ) : data ? (
         <>
-          <TherapistStrip therapists={data.therapists} focus={focus} onFocus={setFocus} />
+          <TherapistStrip therapists={data.therapists} focus={focus} onFocus={setFocus} showAll={!isPhysio} />
 
           {result ? <BookResult result={result} candidates={data.toPlan} onClose={() => setResult(null)} /> : null}
 
@@ -215,15 +219,17 @@ function PlannerScreen() {
 
 /* ─────────────── Physio summary ─────────────── */
 
-function TherapistStrip({ therapists, focus, onFocus }: { therapists: PlannerTherapist[]; focus: string | null; onFocus: (id: string | null) => void }) {
+function TherapistStrip({ therapists, focus, onFocus, showAll }: { therapists: PlannerTherapist[]; focus: string | null; onFocus: (id: string | null) => void; showAll: boolean }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
+      {showAll ? (
       <Pressable onPress={() => onFocus(null)} style={[styles.physio, !focus && styles.physioOn]} accessibilityRole="button" accessibilityState={{ selected: !focus }}>
         <Text weight="bold" style={{ color: !focus ? colors.white : colors.navy900 }}>All physios</Text>
         <Muted style={{ fontSize: 12, color: !focus ? colors.navy100 : colors.muted }}>
           {therapists.reduce((n, t) => n + t.slots.free, 0)} free · {therapists.reduce((n, t) => n + t.slots.booked, 0)} booked
         </Muted>
       </Pressable>
+      ) : null}
       {therapists.map((t) => {
         const on = focus === t.id;
         return (

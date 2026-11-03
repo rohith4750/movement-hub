@@ -42,11 +42,14 @@ plannerRouter.get(
   validate({ query: z.object({ date: date.optional(), therapistId: z.string().uuid().optional() }) }),
   handler(async (req, res) => {
     const day = (req.query.date as string | undefined) ?? addDays(todayLocal(), 1);
-    const onlyTherapist = req.query.therapistId as string | undefined;
+    // A physio plans their own day only (their slots, visits and patients); the Super Admin sees
+    // every physio and may narrow to one.
+    const mine = req.user!.role === "PHYSIOTHERAPIST" ? req.user!.therapistId ?? "__none__" : undefined;
+    const onlyTherapist = mine ?? (req.query.therapistId as string | undefined);
     const range = dayRange(day);
 
     const therapists = await prisma.therapist.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...(mine ? { id: mine } : {}) },
       select: {
         id: true,
         colorTag: true,
@@ -62,24 +65,26 @@ plannerRouter.get(
       await Promise.all(therapists.map((t) => generateSlots(t.id, day, day)));
     }
 
-    const [slots, appointments] = await Promise.all([
+    const [slots, appointments, bookedAnywhere] = await Promise.all([
       prisma.therapistSlot.findMany({
         where: { startAt: range, therapistId: { in: therapists.map((t) => t.id) } },
         select: { id: true, therapistId: true, startAt: true, endAt: true, status: true },
         orderBy: { startAt: "asc" },
       }),
       prisma.appointment.findMany({
-        where: { startAt: range, status: { in: [...LIVE] } },
+        where: { startAt: range, status: { in: [...LIVE] }, ...(mine ? { therapistId: mine } : {}) },
         orderBy: { startAt: "asc" },
         include: {
           patient: { select: { id: true, patientCode: true, firstName: true, lastName: true, phone: true } },
           treatmentPlan: { select: { id: true, title: true, planNo: true } },
         },
       }),
+      // Anyone already booked that day (with any physio) doesn't need planning again.
+      prisma.appointment.findMany({ where: { startAt: range, status: { in: [...LIVE] } }, select: { patientId: true }, distinct: ["patientId"] }),
     ]);
 
     /* ── patients who still need a visit that day ── */
-    const bookedIds = [...new Set(appointments.map((a) => a.patientId))];
+    const bookedIds = bookedAnywhere.map((a) => a.patientId);
     const recent = new Date(Date.now() - RECENT_DAYS * 86_400_000);
     const ongoing = [
       { treatmentPlans: { some: { status: "ACTIVE" as const, deletedAt: null } } },
@@ -150,7 +155,8 @@ plannerRouter.get(
         const type: AppointmentType = plan && !planFull ? "THERAPY_SESSION" : "FOLLOW_UP_CONSULTATION";
         const past = historyBy.get(c.id) ?? [];
         const usualTime = mode(past.map((p) => p.time));
-        const therapistId = plan?.therapistId ?? c.primaryTherapistId ?? mode(past.map((p) => p.therapistId));
+        // A physio's own list is always planned with them.
+        const therapistId = mine ?? plan?.therapistId ?? c.primaryTherapistId ?? mode(past.map((p) => p.therapistId));
         // Package: the one sold for this plan first, then any other with sessions left.
         const usable = c.packages.filter((p) => p.remainingSessions - (reservedBy.get(p.id) ?? 0) > 0);
         const pkg = type === "THERAPY_SESSION" ? usable.find((p) => p.treatmentPlanId === plan?.id) ?? usable[0] ?? null : null;
@@ -243,7 +249,14 @@ plannerRouter.post(
   handler(async (req, res) => {
     const items = req.body.items as z.infer<typeof bookItem>[];
     const results: { patientId: string; slotId: string; ok: boolean; appointmentId?: string; appointmentNo?: string; error?: string; code?: string }[] = [];
+    // A physio books into their own time only.
+    const mine = req.user!.role === "PHYSIOTHERAPIST" ? req.user!.therapistId : null;
+    const own = mine ? new Set((await prisma.therapistSlot.findMany({ where: { id: { in: items.map((i) => i.slotId) }, therapistId: mine }, select: { id: true } })).map((x) => x.id)) : null;
     for (const item of items) {
+      if (own && !own.has(item.slotId)) {
+        results.push({ patientId: item.patientId, slotId: item.slotId, ok: false, error: "You can only book into your own time slots.", code: "NOT_YOUR_SLOT" });
+        continue;
+      }
       try {
         const a = await book({ ...item, source: "SCHEDULED", notes: item.notes ?? "Booked from the day planner" }, req.user!.id);
         await audit(req, "CREATE", "Appointment", a.id, null, { ...a, via: "planner" });
