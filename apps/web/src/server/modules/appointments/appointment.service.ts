@@ -12,6 +12,8 @@ export interface BookInput {
   patientPackageId?: string;
   notes?: string;
   rescheduledFromId?: string;
+  /** WALK_IN: the patient is at the clinic now. They may take the slot that is already running and are checked in straight away. */
+  source?: "SCHEDULED" | "WALK_IN";
 }
 
 /** Allowed status transitions. */
@@ -27,13 +29,15 @@ const TRANSITIONS: Record<AppointmentStatus, AppointmentStatus[]> = {
 };
 
 /** Lock the slot row so two concurrent bookings cannot both see it as AVAILABLE. */
-async function lockSlot(tx: Prisma.TransactionClient, slotId: string) {
+async function lockSlot(tx: Prisma.TransactionClient, slotId: string, walkIn = false) {
   const rows = await tx.$queryRaw<{ id: string; status: string; therapistId: string; startAt: Date; endAt: Date }[]>`
     SELECT "id", "status", "therapistId", "startAt", "endAt" FROM "TherapistSlot" WHERE "id" = ${slotId} FOR UPDATE`;
   const slot = rows[0];
   if (!slot) throw notFound("Slot");
   if (slot.status !== "AVAILABLE") throw conflict("SLOT_UNAVAILABLE", "This slot was just booked. Please choose another.");
-  if (slot.startAt <= new Date()) throw unprocessable("SLOT_IN_PAST", "Cannot book a slot in the past");
+  const now = new Date();
+  // A walk-in can take the slot that is running right now; anything else must start in the future.
+  if (slot.endAt <= now || (!walkIn && slot.startAt <= now)) throw unprocessable("SLOT_IN_PAST", "Cannot book a slot in the past");
   return slot;
 }
 
@@ -49,7 +53,9 @@ async function assertPackageUsable(tx: Tx, patientPackageId: string, patientId: 
 
 /** Core booking. Must run inside a transaction. */
 export async function bookInTx(tx: Prisma.TransactionClient, input: BookInput, bookedById: string) {
-  const slot = await lockSlot(tx, input.slotId);
+  const walkIn = input.source === "WALK_IN";
+  const slot = await lockSlot(tx, input.slotId, walkIn);
+  if (walkIn && localDateString(slot.startAt) !== localDateString(new Date())) throw badRequest("A walk-in must be booked for today", "WALK_IN_NOT_TODAY");
   const patient = await tx.patient.findFirst({ where: { id: input.patientId, deletedAt: null } });
   if (!patient) throw notFound("Patient");
 
@@ -76,13 +82,24 @@ export async function bookInTx(tx: Prisma.TransactionClient, input: BookInput, b
       therapistId: slot.therapistId,
       slotId: slot.id,
       type: input.type,
+      source: walkIn ? "WALK_IN" : "SCHEDULED",
+      // A walk-in is already at the clinic, so they are checked in as they are booked.
+      status: walkIn ? "CHECKED_IN" : "SCHEDULED",
+      checkedInAt: walkIn ? new Date() : undefined,
       startAt: slot.startAt,
       endAt: slot.endAt,
       treatmentPlanId: input.treatmentPlanId,
       notes: input.notes,
       bookedById,
       rescheduledFromId: input.rescheduledFromId,
-      history: { create: { toStatus: "SCHEDULED", changedById: bookedById, note: input.rescheduledFromId ? "Rescheduled" : "Booked" } },
+      history: {
+        create: walkIn
+          ? [
+              { toStatus: "SCHEDULED", changedById: bookedById, note: "Walk-in booked" },
+              { fromStatus: "SCHEDULED", toStatus: "CHECKED_IN", changedById: bookedById, note: "Walk-in: patient at the clinic" },
+            ]
+          : [{ toStatus: "SCHEDULED", changedById: bookedById, note: input.rescheduledFromId ? "Rescheduled" : "Booked" }],
+      },
     },
   });
   await tx.therapistSlot.update({ where: { id: slot.id }, data: { status: "BOOKED" } });

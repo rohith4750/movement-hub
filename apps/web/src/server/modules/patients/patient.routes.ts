@@ -9,6 +9,7 @@ import { assertPatientAccess, authorize, STAFF } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { phoneSchema } from "../../lib/validators";
 import { badRequest, notFound, unprocessable } from "../../lib/http-error";
+import { visitStats } from "./patient-stats";
 
 export const patientRouter = Router();
 
@@ -112,7 +113,8 @@ patientRouter.get(
       }),
       prisma.patient.count({ where }),
     ]);
-    ok(res, data, meta(query, total));
+    const stats = await visitStats(data.map((p) => ({ id: p.id, primaryTherapistId: p.primaryTherapistId, activePlans: p.treatmentPlans.length })));
+    ok(res, data.map((p) => ({ ...p, visits: stats.get(p.id) })), meta(query, total));
   }),
 );
 
@@ -159,7 +161,9 @@ patientRouter.get(
         appointments: { orderBy: { startAt: "desc" }, take: 10, include: { therapist: { include: { user: { select: { name: true } } } } } },
       },
     });
-    ok(res, patient);
+    const activePlans = patient.treatmentPlans.filter((t) => t.status === "ACTIVE").length;
+    const stats = await visitStats([{ id: patient.id, primaryTherapistId: patient.primaryTherapistId, activePlans }]);
+    ok(res, { ...patient, visits: stats.get(patient.id) });
   }),
 );
 

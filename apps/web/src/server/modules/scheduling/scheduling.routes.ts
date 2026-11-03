@@ -17,6 +17,8 @@ const availabilityQuery = z.object({
   therapistId: z.string().uuid().optional(),
   specializationId: z.string().uuid().optional(),
   type: z.enum(["INITIAL_CONSULTATION", "FOLLOW_UP_CONSULTATION", "THERAPY_SESSION", "HOME_VISIT"]).optional(),
+  /** "true": the patient is here now — the slot already running counts as free. */
+  walkIn: z.enum(["true", "false"]).optional().transform((v) => v === "true"),
 });
 
 availabilityRouter.get(

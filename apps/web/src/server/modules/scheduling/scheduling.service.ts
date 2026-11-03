@@ -65,7 +65,13 @@ export async function availabilitySummary(opts: { from: string; days: number; th
   });
 }
 
-export async function availability(opts: { date: string; therapistId?: string; specializationId?: string; type?: AppointmentType }) {
+/**
+ * Bookable slots per physio for a day, plus the booked / blocked ones and counts so the app can
+ * draw a clear Available / Booked / Unavailable grid. With `walkIn`, the slot that is running
+ * right now is still bookable (the patient is at the clinic).
+ */
+export async function availability(opts: { date: string; therapistId?: string; specializationId?: string; type?: AppointmentType; walkIn?: boolean }) {
+  const now = new Date();
   const therapists = await prisma.therapist.findMany({
     where: {
       isActive: true,
@@ -76,18 +82,29 @@ export async function availability(opts: { date: string; therapistId?: string; s
     include: {
       user: { select: { name: true } },
       specializations: { include: { specialization: true } },
+      leaves: { where: { status: "APPROVED", startDate: { lt: dayRange(opts.date).lt }, endDate: { gt: dayRange(opts.date).gte } }, select: { id: true } },
       slots: {
-        where: { status: "AVAILABLE", startAt: { ...dayRange(opts.date), gt: new Date() } },
+        where: { startAt: dayRange(opts.date) },
         orderBy: { startAt: "asc" },
-        select: { id: true, startAt: true, endAt: true },
+        select: { id: true, startAt: true, endAt: true, status: true },
       },
     },
+    orderBy: { user: { name: "asc" } },
   });
-  return therapists.map((t) => ({
-    therapistId: t.id,
-    therapistName: t.user.name,
-    colorTag: t.colorTag,
-    specializations: t.specializations.map((s) => s.specialization.name),
-    slots: t.slots.map((s) => ({ slotId: s.id, startAt: s.startAt, endAt: s.endAt })),
-  }));
+  const bookable = (s: { startAt: Date; endAt: Date }) => (opts.walkIn ? s.endAt > now : s.startAt > now);
+  return therapists.map((t) => {
+    const free = t.slots.filter((s) => s.status === "AVAILABLE" && bookable(s));
+    const taken = t.slots.filter((s) => s.status !== "AVAILABLE" && s.endAt > now);
+    return {
+      therapistId: t.id,
+      therapistName: t.user.name,
+      colorTag: t.colorTag,
+      onLeave: t.leaves.length > 0,
+      specializations: t.specializations.map((s) => s.specialization.name),
+      slots: free.map((s) => ({ slotId: s.id, startAt: s.startAt, endAt: s.endAt })),
+      /** Booked or blocked times still ahead today (or on that day), for the legend. */
+      taken: taken.map((s) => ({ startAt: s.startAt, endAt: s.endAt, status: s.status as "BOOKED" | "BLOCKED" })),
+      counts: { free: free.length, booked: t.slots.filter((s) => s.status === "BOOKED").length, blocked: t.slots.filter((s) => s.status === "BLOCKED").length },
+    };
+  });
 }

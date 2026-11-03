@@ -101,6 +101,45 @@ treatmentPlanRouter.get(
   }),
 );
 
+/* ─────────────── One active plan per patient ─────────────── */
+
+const UPCOMING_BOOKED = ["SCHEDULED", "CONFIRMED"] as const;
+
+/**
+ * A patient has at most one ACTIVE plan. Activating another is refused (409 ACTIVE_PLAN_EXISTS,
+ * with the current plan in `details`) unless the caller confirms `replaceActive`: then the old
+ * plan is completed as "replaced", and its upcoming, not-yet-started visits move to the new plan
+ * so the patient's bookings carry on. Runs inside the activating transaction, with the patient
+ * row locked so two activations can't race.
+ */
+async function ensureSingleActivePlan(tx: Prisma.TransactionClient, opts: { patientId: string; newPlanId: string; newPlanNo: string; replaceActive: boolean }) {
+  await tx.$queryRaw`SELECT "id" FROM "Patient" WHERE "id" = ${opts.patientId} FOR UPDATE`;
+  const current = await tx.treatmentPlan.findFirst({
+    where: { patientId: opts.patientId, status: "ACTIVE", deletedAt: null, id: { not: opts.newPlanId } },
+    select: { id: true, planNo: true, title: true, dischargeSummary: true },
+  });
+  if (!current) return null;
+  const upcoming = { treatmentPlanId: current.id, status: { in: [...UPCOMING_BOOKED] }, startAt: { gt: new Date() } };
+  if (!opts.replaceActive) {
+    const upcomingVisits = await tx.appointment.count({ where: upcoming });
+    throw new HttpError(409, "ACTIVE_PLAN_EXISTS", `This patient already has an active plan (${current.planNo} – ${current.title}).`, {
+      planId: current.id,
+      planNo: current.planNo,
+      title: current.title,
+      upcomingVisits,
+    });
+  }
+  const moving = await tx.appointment.findMany({ where: upcoming, select: { id: true } });
+  const ids = moving.map((m) => m.id);
+  await tx.appointment.updateMany({ where: { id: { in: ids } }, data: { treatmentPlanId: opts.newPlanId } });
+  await tx.therapySession.updateMany({ where: { appointmentId: { in: ids }, status: "SCHEDULED" }, data: { treatmentPlanId: opts.newPlanId } });
+  await tx.treatmentPlan.update({
+    where: { id: current.id },
+    data: { status: "COMPLETED", completedAt: new Date(), dischargeSummary: current.dischargeSummary ?? `Replaced by plan ${opts.newPlanNo}.` },
+  });
+  return { replacedPlanId: current.id, replacedPlanNo: current.planNo, movedVisits: ids.length };
+}
+
 treatmentPlanRouter.post(
   "/",
   authorize("PHYSIOTHERAPIST", "ADMIN"),
@@ -110,11 +149,13 @@ treatmentPlanRouter.post(
       consultationId: z.string().uuid().optional(),
       therapistId: z.string().uuid().optional(), // admins choose the treating physiotherapist
       activate: z.boolean().default(false),
+      /** Confirmed by the user: complete the patient's current active plan and carry its bookings over. */
+      replaceActive: z.boolean().default(false),
       items: z.array(item).default([]),
     }),
   }),
   handler(async (req, res) => {
-    const { items, startDate, endDate, therapistId: requestedTherapist, activate, ...data } = req.body;
+    const { items, startDate, endDate, therapistId: requestedTherapist, activate, replaceActive, ...data } = req.body;
     // Physiotherapists own the plans they write. Otherwise: the chosen physiotherapist,
     // or — when the plan comes from a consultation — the physiotherapist who did that consultation.
     let therapistId = req.user!.role === "PHYSIOTHERAPIST" ? req.user!.therapistId : requestedTherapist;
@@ -134,8 +175,8 @@ treatmentPlanRouter.post(
       data.diagnosis ||= c.assessment?.diagnosis ?? undefined;
     }
     const title = data.title || data.diagnosis?.slice(0, 120) || "Treatment plan";
-    const plan = await prisma.$transaction(async (tx) =>
-      tx.treatmentPlan.create({
+    const { plan, replaced } = await prisma.$transaction(async (tx) => {
+      const p = await tx.treatmentPlan.create({
         data: {
           ...data,
           title,
@@ -147,10 +188,13 @@ treatmentPlanRouter.post(
           items: { create: items },
         },
         include,
-      }),
-    );
+      });
+      const r = activate ? await ensureSingleActivePlan(tx, { patientId: p.patientId, newPlanId: p.id, newPlanNo: p.planNo, replaceActive }) : null;
+      if (r) await audit(req, "UPDATE", "TreatmentPlan", r.replacedPlanId, { status: "ACTIVE" }, { status: "COMPLETED", replacedBy: p.planNo, movedVisits: r.movedVisits }, tx);
+      return { plan: p, replaced: r };
+    });
     await audit(req, "CREATE", "TreatmentPlan", plan.id, null, plan);
-    created(res, plan);
+    created(res, { ...plan, replaced });
   }),
 );
 
@@ -192,19 +236,24 @@ treatmentPlanRouter.patch(
 treatmentPlanRouter.post(
   "/:id/activate",
   authorize("PHYSIOTHERAPIST", "ADMIN"),
-  validate({ params: idParam }),
+  validate({ params: idParam, body: z.object({ replaceActive: z.boolean().default(false) }).default({}) }),
   handler(async (req, res) => {
     const plan = await editable(req, req.params.id);
     if (plan.status !== "DRAFT") throw unprocessable("INVALID_STATUS", `Plan is ${plan.status}`);
     const items = await prisma.treatmentPlanItem.count({ where: { treatmentPlanId: plan.id } });
     if (items === 0) throw unprocessable("PLAN_EMPTY", "Add at least one treatment before activating");
-    const updated = await prisma.treatmentPlan.update({
-      where: { id: plan.id },
-      data: { status: "ACTIVE", activatedAt: new Date(), startDate: plan.startDate ?? dateOnly(todayLocal()) },
-      include,
+    const { updated, replaced } = await prisma.$transaction(async (tx) => {
+      const r = await ensureSingleActivePlan(tx, { patientId: plan.patientId, newPlanId: plan.id, newPlanNo: plan.planNo, replaceActive: req.body.replaceActive });
+      const u = await tx.treatmentPlan.update({
+        where: { id: plan.id },
+        data: { status: "ACTIVE", activatedAt: new Date(), startDate: plan.startDate ?? dateOnly(todayLocal()) },
+        include,
+      });
+      if (r) await audit(req, "UPDATE", "TreatmentPlan", r.replacedPlanId, { status: "ACTIVE" }, { status: "COMPLETED", replacedBy: plan.planNo, movedVisits: r.movedVisits }, tx);
+      return { updated: u, replaced: r };
     });
     await audit(req, "UPDATE", "TreatmentPlan", plan.id, { status: plan.status }, { status: "ACTIVE" });
-    ok(res, updated);
+    ok(res, { ...updated, replaced });
   }),
 );
 

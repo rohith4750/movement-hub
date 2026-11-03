@@ -56,6 +56,12 @@ reportRouter.get(
       }),
       prisma.patient.count({ where: { createdAt: monthR, deletedAt: null } }),
     ]);
+    // Walk-ins vs booked-ahead visits today, and how many patients are in ongoing care.
+    const [bySourceToday, regularPatients] = await Promise.all([
+      prisma.appointment.groupBy({ by: ["source"], where: { startAt: todayR, therapistId, status: { notIn: ["CANCELLED", "RESCHEDULED"] } }, _count: { _all: true } }),
+      prisma.patient.count({ where: { deletedAt: null, OR: [{ primaryTherapistId: { not: null } }, { treatmentPlans: { some: { status: "ACTIVE", deletedAt: null } } }] } }),
+    ]);
+    const sourceCount = (s: "SCHEDULED" | "WALK_IN") => bySourceToday.find((x) => x.source === s)?._count._all ?? 0;
     const slotsOf = (id: string, status: "AVAILABLE" | "BOOKED") =>
       slotCounts.find((c) => c.therapistId === id && c.status === status)?._count._all ?? 0;
     const utilization = therapists.map((t) => {
@@ -66,6 +72,9 @@ reportRouter.get(
     ok(res, {
       totalPatients,
       newPatientsMonth,
+      regularPatients,
+      walkInsToday: sourceCount("WALK_IN"),
+      scheduledToday: sourceCount("SCHEDULED"),
       todayAppointments,
       pendingAppointments,
       completedSessionsToday,
@@ -75,6 +84,43 @@ reportRouter.get(
       therapistUtilization: utilization,
       upcomingAppointments: upcoming,
     });
+  }),
+);
+
+/** Month-by-month trend for the owner: visits, completed, walk-ins, no-shows and new patients. */
+reportRouter.get(
+  "/monthly",
+  authorize("ADMIN"),
+  validate({ query: z.object({ months: z.coerce.number().int().min(1).max(24).default(6) }) }),
+  handler(async (req, res) => {
+    const months = q<{ months: number }>(req).months;
+    const thisMonth = todayLocal().slice(0, 7);
+    const keys: string[] = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(`${thisMonth}-15T12:00:00Z`);
+      d.setUTCMonth(d.getUTCMonth() - i);
+      keys.push(d.toISOString().slice(0, 7));
+    }
+    const nextMonth = (m: string) => {
+      const d = new Date(`${m}-15T12:00:00Z`);
+      d.setUTCMonth(d.getUTCMonth() + 1);
+      return d.toISOString().slice(0, 7);
+    };
+    const rows = await Promise.all(
+      keys.map(async (m) => {
+        const range = { gte: dayRange(`${m}-01`).gte, lt: dayRange(`${nextMonth(m)}-01`).gte };
+        const live = { startAt: range, status: { notIn: ["CANCELLED" as const, "RESCHEDULED" as const] } };
+        const [visits, completed, walkIns, noShows, newPatients] = await Promise.all([
+          prisma.appointment.count({ where: live }),
+          prisma.appointment.count({ where: { startAt: range, status: "COMPLETED" } }),
+          prisma.appointment.count({ where: { ...live, source: "WALK_IN" } }),
+          prisma.appointment.count({ where: { startAt: range, status: "NO_SHOW" } }),
+          prisma.patient.count({ where: { createdAt: range, deletedAt: null } }),
+        ]);
+        return { month: m, visits, completed, walkIns, scheduled: visits - walkIns, noShows, newPatients };
+      }),
+    );
+    ok(res, rows);
   }),
 );
 
@@ -108,10 +154,11 @@ reportRouter.get(
   validate({ query: rangeQuery }),
   handler(async (req, res) => {
     const r = q<Range>(req);
-    const [byStatus, byType, byTherapist] = await Promise.all([
+    const [byStatus, byType, byTherapist, bySource] = await Promise.all([
       prisma.appointment.groupBy({ by: ["status"], where: { startAt: span(r) }, _count: true }),
       prisma.appointment.groupBy({ by: ["type"], where: { startAt: span(r) }, _count: true }),
       prisma.appointment.groupBy({ by: ["therapistId"], where: { startAt: span(r), status: "COMPLETED" }, _count: true }),
+      prisma.appointment.groupBy({ by: ["source"], where: { startAt: span(r), status: { notIn: ["CANCELLED", "RESCHEDULED"] } }, _count: true }),
     ]);
     const names = await prisma.therapist.findMany({ select: { id: true, user: { select: { name: true } } } });
     const total = byStatus.reduce((s, x) => s + x._count, 0);
@@ -124,6 +171,7 @@ reportRouter.get(
       cancellationRate: total ? +(cancelled / total * 100).toFixed(1) : 0,
       byStatus: byStatus.map((x) => ({ status: x.status, count: x._count })),
       byType: byType.map((x) => ({ type: x.type, count: x._count })),
+      bySource: bySource.map((x) => ({ source: x.source, count: x._count })),
       completedByTherapist: byTherapist.map((x) => ({ therapistId: x.therapistId, name: names.find((n) => n.id === x.therapistId)?.user.name, count: x._count })),
     });
   }),

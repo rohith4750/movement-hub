@@ -54,6 +54,18 @@ enum AppointmentType {
   HOME_VISIT
 }
 
+/// How the visit came about: booked ahead, or a patient who walked in.
+enum AppointmentSource {
+  SCHEDULED
+  WALK_IN
+}
+
+/// A consultation can be saved as a draft and finished later; only FINAL notes complete the visit.
+enum ConsultationStatus {
+  DRAFT
+  FINAL
+}
+
 enum AppointmentStatus {
   SCHEDULED
   CONFIRMED
@@ -506,6 +518,7 @@ model Appointment {
   slotId          String?           @unique // one active appointment per slot
   type            AppointmentType
   status          AppointmentStatus @default(SCHEDULED)
+  source          AppointmentSource @default(SCHEDULED)
   startAt         DateTime
   endAt           DateTime
   treatmentPlanId String?
@@ -576,6 +589,8 @@ model Consultation {
   patientId        String
   therapistId      String
   isFollowUp       Boolean   @default(false)
+  status           ConsultationStatus @default(FINAL)
+  finalizedAt      DateTime?
   chiefComplaint   String?
   symptoms         String?
   historyOfIllness String?

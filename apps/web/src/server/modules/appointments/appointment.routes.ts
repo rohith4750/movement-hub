@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma, type Prisma } from "@movement-hub/database";
 import { created, handler, idParam, meta, ok, paginationQuery, paging, q } from "../../lib/http";
 import { audit } from "../../lib/audit";
-import { badRequest, forbidden } from "../../lib/http-error";
+import { badRequest, forbidden, unprocessable } from "../../lib/http-error";
 import { addDays, dateOnly, dayRange, localDateTime, localDayCode, todayLocal } from "../../lib/time";
 import { assertPatientAccess, authorize, isPatient, scopePatient, STAFF } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
@@ -45,6 +45,7 @@ const listQuery = paginationQuery.extend({
   patientId: z.string().uuid().optional(),
   status: status.optional(),
   type: type.optional(),
+  source: z.enum(["SCHEDULED", "WALK_IN"]).optional(),
 });
 
 appointmentRouter.get(
@@ -59,6 +60,7 @@ appointmentRouter.get(
       patientId: scopePatient(req, query.patientId),
       status: query.status,
       type: query.type,
+      source: query.source,
       ...(from || to ? { startAt: { ...(from ? { gte: dayRange(from).gte } : {}), ...(to ? { lt: dayRange(to).lt } : {}) } } : {}),
       ...(query.search
         ? { OR: [{ appointmentNo: { contains: query.search, mode: "insensitive" } }, { patient: { firstName: { contains: query.search, mode: "insensitive" } } }, { patient: { phone: { contains: query.search } } }] }
@@ -88,6 +90,7 @@ const bookBody = z.object({
   treatmentPlanId: z.string().uuid().optional(),
   patientPackageId: z.string().uuid().optional(),
   notes: z.string().max(1000).optional(),
+  source: z.enum(["SCHEDULED", "WALK_IN"]).default("SCHEDULED"),
 });
 
 appointmentRouter.post(
@@ -217,7 +220,12 @@ function statusRoute(path: string, to: z.infer<typeof status>, roles: Parameters
     handler(async (req, res) => {
       const { own } = await loadOwned(req, req.params.id);
       if (clinical && !own) throw forbidden("This appointment belongs to another therapist");
-      const a = await transition(prisma, req.params.id, to, req.user!.id, req.body.note, extra());
+      if (to === "COMPLETED") {
+        const draft = await prisma.consultation.findFirst({ where: { appointmentId: req.params.id, status: "DRAFT", deletedAt: null }, select: { id: true } });
+        if (draft) throw unprocessable("CONSULTATION_DRAFT", "The consultation notes are still a draft. Finish them before completing the visit.");
+      }
+      // In a transaction so transition()'s row lock holds until the change is committed.
+      const a = await prisma.$transaction((tx) => transition(tx, req.params.id, to, req.user!.id, req.body.note, extra()));
       if (to === "NO_SHOW") await prisma.therapySession.updateMany({ where: { appointmentId: a.id }, data: { status: "MISSED" } });
       await audit(req, "UPDATE", "Appointment", a.id, null, { status: to });
       ok(res, a);
@@ -255,15 +263,17 @@ appointmentRouter.post(
   }),
 );
 
+/**
+ * Permanent delete is an admin-only correction tool (e.g. a duplicate booked by mistake).
+ * Everyone else cancels instead, so the visit stays in the patient's history.
+ */
 appointmentRouter.delete(
   "/:id",
-  authorize("ADMIN", "RECEPTIONIST"),
+  authorize("ADMIN"),
   validate({ params: idParam }),
   handler(async (req, res) => {
-    // Admins may delete any unbilled appointment (including completed ones); receptionists only clean bookings.
-    const force = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
     const deleted = await deleteAppointment(req.params.id, {
-      force,
+      force: true,
       userId: req.user!.id,
       record: (snapshot, tx) => audit(req, "DELETE", "Appointment", req.params.id, snapshot, null, tx),
     });

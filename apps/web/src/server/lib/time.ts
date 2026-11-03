@@ -12,6 +12,11 @@ export function localDateString(d: Date): string {
   return new Date(d.getTime() + parseOffset(env.TIMEZONE_OFFSET) * 60_000).toISOString().slice(0, 10);
 }
 
+/** Local hospital time of day (HH:mm) for a Date. */
+export function localTimeString(d: Date): string {
+  return new Date(d.getTime() + parseOffset(env.TIMEZONE_OFFSET) * 60_000).toISOString().slice(11, 16);
+}
+
 export function localDayCode(date: string) {
   return DAY_CODES[new Date(`${date}T12:00:00Z`).getUTCDay()];
 }
