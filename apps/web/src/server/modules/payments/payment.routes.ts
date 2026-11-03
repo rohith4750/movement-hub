@@ -11,7 +11,7 @@ import { badRequest, unauthorized, unprocessable } from "../../lib/http-error";
 import { dayRange } from "../../lib/time";
 import { assertPatientAccess, authorize, isPatient } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
-import { refreshInvoiceBalance } from "../billing/billing.service";
+import { assertBillAccess, billingScope, refreshInvoiceBalance } from "../billing/billing.service";
 import { notifyPatient } from "../notifications/notification.service";
 
 export const paymentRouter = Router();
@@ -72,6 +72,8 @@ paymentRouter.get(
       method: query.method,
       status: query.status,
       ...(isPatient(req) ? { invoice: { patientId: req.user!.patientId! } } : {}),
+      // Physios see payments on their own patients' bills only.
+      ...(req.user!.role === "PHYSIOTHERAPIST" ? { invoice: { therapistId: billingScope(req.user) } } : {}),
       ...(query.from || query.to ? { createdAt: { ...(query.from ? { gte: dayRange(query.from).gte } : {}), ...(query.to ? { lt: dayRange(query.to).lt } : {}) } } : {}),
     };
     const [data, total] = await Promise.all([
@@ -95,6 +97,7 @@ paymentRouter.post(
   }),
   handler(async (req, res) => {
     const inv = await payableInvoice(req.body.invoiceId);
+    assertBillAccess(req.user, inv);
     // One transaction with the invoice row locked: two payments recorded at the same moment are
     // checked one after the other against the real balance, so the invoice can't be overpaid.
     const p = await prisma.$transaction(async (tx) => {
@@ -133,6 +136,7 @@ paymentRouter.post(
     if (!razorpay) throw unprocessable("PAYMENTS_DISABLED", "Online payments are not configured");
     const inv = await payableInvoice(req.body.invoiceId);
     assertPatientAccess(req, inv.patientId);
+    assertBillAccess(req.user, inv);
     const order = await razorpay.orders.create({ amount: Math.round(Number(inv.dueAmount) * 100), currency: "INR", receipt: inv.invoiceNo, notes: { invoiceId: inv.id } });
     const payment = await prisma.$transaction(async (tx) =>
       tx.payment.create({ data: { receiptNo: await nextCode(tx, "receipt"), invoiceId: inv.id, method: "RAZORPAY", amount: inv.dueAmount, razorpayOrderId: order.id } }),
@@ -186,6 +190,7 @@ paymentRouter.get(
   handler(async (req, res) => {
     const p = await prisma.payment.findUniqueOrThrow({ where: { id: req.params.id }, include: { refunds: true, invoice: { include: { patient: { select: { id: true, firstName: true, lastName: true, patientCode: true } } } } } });
     assertPatientAccess(req, p.invoice.patientId);
+    assertBillAccess(req.user, p.invoice);
     ok(res, p);
   }),
 );
@@ -197,6 +202,7 @@ paymentRouter.get(
   handler(async (req, res) => {
     const p = await prisma.payment.findUniqueOrThrow({ where: { id: req.params.id }, include: { invoice: { include: { patient: true, branch: true } } } });
     assertPatientAccess(req, p.invoice.patientId);
+    assertBillAccess(req.user, p.invoice);
     if (p.status !== "SUCCESS" && p.status !== "PARTIALLY_REFUNDED") throw unprocessable("NOT_PAID", "Receipt is available after successful payment");
     res.type("html").send(`<!doctype html><html><head><meta charset="utf-8"><title>${p.receiptNo}</title>
 <style>body{font-family:system-ui;max-width:520px;margin:24px auto;color:#0f1b4c}td{padding:6px 0}h2{border-bottom:3px solid #c9a14a;padding-bottom:8px}</style></head><body>
@@ -214,7 +220,8 @@ paymentRouter.post(
   authorize("ACCOUNTANT", "ADMIN"),
   validate({ params: idParam, body: z.object({ amount: z.number().positive(), reason: z.string().min(3) }) }),
   handler(async (req, res) => {
-    const p = await prisma.payment.findUniqueOrThrow({ where: { id: req.params.id }, include: { refunds: true } });
+    const p = await prisma.payment.findUniqueOrThrow({ where: { id: req.params.id }, include: { refunds: true, invoice: { select: { therapistId: true } } } });
+    assertBillAccess(req.user, p.invoice);
     if (!["SUCCESS", "PARTIALLY_REFUNDED"].includes(p.status)) throw unprocessable("NOT_REFUNDABLE", `Payment is ${p.status}`);
     const refunded = p.refunds.filter((r) => r.status !== "FAILED").reduce((s, r) => s.add(r.amount), D(0));
     const refundable = p.amount.sub(refunded);

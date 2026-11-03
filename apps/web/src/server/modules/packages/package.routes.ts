@@ -7,7 +7,7 @@ import { badRequest, unprocessable } from "../../lib/http-error";
 import { addDays, dateOnly, todayLocal } from "../../lib/time";
 import { assertPatientAccess, authorize, scopePatient, STAFF } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
-import { createInvoice } from "../billing/billing.service";
+import { billerOf, createInvoice } from "../billing/billing.service";
 import { adjust, lockPackage } from "./package.service";
 
 export const packageRouter = Router();
@@ -140,7 +140,8 @@ patientPackageRouter.post(
           discountAmount: req.body.discountAmount,
           discountReason: req.body.discountReason,
         },
-        req.user!.id,
+        // A physio selling a package bills it for themselves; the Super Admin's sale goes to the plan's / regular physio.
+        billerOf(req),
         true,
       );
       return { patientPackage: pp, invoice };

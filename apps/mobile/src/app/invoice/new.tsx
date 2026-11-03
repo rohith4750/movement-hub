@@ -9,6 +9,8 @@ import { api } from "@/lib/api";
 import { fullName, inr } from "@/lib/format";
 import { qk } from "@/lib/query-keys";
 import { useAction } from "@/lib/refresh";
+import { useAuth } from "@/lib/auth";
+import { useTherapists } from "@/lib/queries";
 import { colors, radius, space } from "@/theme";
 
 type ItemType = "CONSULTATION" | "THERAPY_SESSION" | "PACKAGE" | "HOME_VISIT" | "TRAVEL_CHARGE" | "OTHER";
@@ -25,6 +27,7 @@ interface PatientRow {
   firstName: string;
   lastName: string | null;
   phone: string;
+  primaryTherapist?: { id: string; user: { name: string } } | null;
 }
 interface Preview {
   subtotal: string;
@@ -71,6 +74,11 @@ function NewInvoiceForm() {
   const [discount, setDiscount] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const [notes, setNotes] = useState("");
+  // Whose bill this is. A physio always bills for themselves; the Super Admin can choose
+  // ("" = automatic: the physio of the billed visit, else the patient's regular physio).
+  const isPhysio = useAuth((s) => s.user?.role === "PHYSIOTHERAPIST");
+  const [billFor, setBillFor] = useState("");
+  const therapists = useTherapists({ enabled: !isPhysio });
 
   const patients = useQuery({
     queryKey: qk.patients.list("invoice", { search: debounced }),
@@ -90,7 +98,7 @@ function NewInvoiceForm() {
     enabled: !!patient && linesOk && discountOk,
   });
 
-  const save = useAction((issue: boolean) => api.post<{ id: string }>("/invoices", { ...body, issue }), {
+  const save = useAction((issue: boolean) => api.post<{ id: string }>("/invoices", { ...body, issue, therapistId: isPhysio ? undefined : billFor || undefined }), {
     refresh: ["billing"],
     onSuccess: (inv) => router.replace({ pathname: "/invoice/[id]", params: { id: inv.id } }),
   });
@@ -130,6 +138,21 @@ function NewInvoiceForm() {
             {patients.data?.data.length === 0 ? <Muted style={{ fontSize: 12 }}>No patients match.</Muted> : null}
           </>
         )}
+        {patient ? (
+          isPhysio ? (
+            <Muted style={{ fontSize: 12 }}>Billed to you: the payment counts in your collections.</Muted>
+          ) : (
+            <SelectField
+              label="Bill for physiotherapist"
+              value={billFor}
+              onChange={setBillFor}
+              options={[
+                { value: "", label: patient.primaryTherapist ? `Automatic (${patient.primaryTherapist.user.name})` : "Automatic", hint: "Physio of the billed visit, else the regular physio" },
+                ...(therapists.data ?? []).map((t) => ({ value: t.id, label: t.user.name })),
+              ]}
+            />
+          )
+        ) : null}
       </Card>
 
       <Card>

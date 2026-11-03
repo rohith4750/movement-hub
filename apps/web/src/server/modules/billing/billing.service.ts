@@ -1,6 +1,6 @@
 import { Prisma, prisma, type InvoiceItemType, type InvoiceStatus } from "@movement-hub/database";
 import { nextCode } from "../../lib/codes";
-import { unprocessable } from "../../lib/http-error";
+import { HttpError, unprocessable } from "../../lib/http-error";
 
 type Tx = Prisma.TransactionClient;
 const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
@@ -15,8 +15,62 @@ export interface InvoiceItemInput {
   patientPackageId?: string;
 }
 
+/* ─────────────── Whose bill is it? ─────────────── */
+
+/** Who is creating or viewing a bill. */
+export interface Biller {
+  id: string;
+  role: string;
+  therapistId: string | null;
+}
+
+/**
+ * Each bill belongs to one physiotherapist: they see it, collect its payments, and it counts in
+ * their collections. A physio billing someone always bills for themselves. When the Super Admin
+ * bills, it goes to the physio they chose, else the physio who did the billed visit, else the
+ * physio of the billed package's plan, else the patient's regular physio.
+ */
+export async function resolveInvoiceTherapist(tx: Tx, input: { patientId: string; items: InvoiceItemInput[]; therapistId?: string | null }, by: Biller) {
+  if (by.role === "PHYSIOTHERAPIST" && by.therapistId) return by.therapistId;
+  if (input.therapistId) {
+    const t = await tx.therapist.findFirst({ where: { id: input.therapistId, isActive: true }, select: { id: true } });
+    if (!t) throw unprocessable("THERAPIST_NOT_FOUND", "Physiotherapist not found or inactive");
+    return t.id;
+  }
+  const apptIds = input.items.map((i) => i.appointmentId).filter((x): x is string => !!x);
+  if (apptIds.length) {
+    const a = await tx.appointment.findFirst({ where: { id: { in: apptIds } }, orderBy: { startAt: "desc" }, select: { therapistId: true } });
+    if (a) return a.therapistId;
+  }
+  const pkgIds = input.items.map((i) => i.patientPackageId).filter((x): x is string => !!x);
+  if (pkgIds.length) {
+    const pp = await tx.patientPackage.findFirst({ where: { id: { in: pkgIds }, treatmentPlanId: { not: null } }, select: { treatmentPlan: { select: { therapistId: true } } } });
+    if (pp?.treatmentPlan) return pp.treatmentPlan.therapistId;
+  }
+  const p = await tx.patient.findUnique({ where: { id: input.patientId }, select: { primaryTherapistId: true } });
+  return p?.primaryTherapistId ?? null;
+}
+
+/** Physios work with their own patients' bills only; the Super Admin sees all (optionally one physio's). */
+export function billingScope(user: { role: string; therapistId: string | null } | undefined, requested?: string): string | undefined {
+  if (user?.role === "PHYSIOTHERAPIST") return user.therapistId ?? "__none__";
+  return requested;
+}
+
+/** The signed-in user as a biller. */
+export const billerOf = (req: { user?: { id: string; role: string; therapistId: string | null } }): Biller => ({ id: req.user!.id, role: req.user!.role, therapistId: req.user!.therapistId });
+
+/** Stop a physio from opening or changing another physio's bill. */
+export function assertBillAccess(user: { role: string; therapistId: string | null } | undefined, invoice: { therapistId: string | null }) {
+  if (user?.role === "PHYSIOTHERAPIST" && invoice.therapistId !== user.therapistId) {
+    throw new HttpError(403, "NOT_YOUR_BILL", "This bill belongs to another physiotherapist's patient.");
+  }
+}
+
 export interface InvoiceInput {
   patientId: string;
+  /** Super Admin may choose the physio; ignored for physios (they always bill for themselves). */
+  therapistId?: string | null;
   items: InvoiceItemInput[];
   discountAmount?: number;
   discountReason?: string;
@@ -49,15 +103,17 @@ export function computeTotals(items: InvoiceItemInput[], discountAmount: number,
   };
 }
 
-export async function createInvoice(tx: Tx, input: InvoiceInput, createdById: string, issue = false) {
+export async function createInvoice(tx: Tx, input: InvoiceInput, by: Biller, issue = false) {
   const patient = await tx.patient.findUniqueOrThrow({ where: { id: input.patientId } });
   const settings = await tx.hospitalSetting.findUnique({ where: { branchId: patient.branchId } });
   const t = computeTotals(input.items, input.discountAmount ?? 0, settings?.gstPercent ?? D(0), input.interState);
+  const therapistId = await resolveInvoiceTherapist(tx, input, by);
   return tx.invoice.create({
     data: {
       invoiceNo: await nextCode(tx, "invoice"),
       branchId: patient.branchId,
       patientId: patient.id,
+      therapistId,
       status: issue ? "ISSUED" : "DRAFT",
       issuedAt: issue ? new Date() : undefined,
       subtotal: t.subtotal,
@@ -72,7 +128,7 @@ export async function createInvoice(tx: Tx, input: InvoiceInput, createdById: st
       dueAmount: t.totalAmount,
       dueDate: input.dueDate,
       notes: input.notes,
-      createdById,
+      createdById: by.id,
       items: {
         create: t.lines.map((l) => ({
           type: l.type,
@@ -114,6 +170,7 @@ export async function invoiceWithDetails(id: string) {
     where: { id },
     include: {
       items: true,
+      therapist: { select: { id: true, user: { select: { name: true } } } },
       payments: { include: { refunds: true }, orderBy: { createdAt: "asc" } },
       patient: { select: { id: true, patientCode: true, firstName: true, lastName: true, phone: true, email: true, addresses: { where: { isDefault: true }, take: 1 } } },
       branch: { select: { name: true, address: true, city: true, state: true, pincode: true, gstin: true, phone: true, email: true } },

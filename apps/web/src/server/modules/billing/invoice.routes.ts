@@ -7,7 +7,7 @@ import { unprocessable } from "../../lib/http-error";
 import { dateOnly, dayRange } from "../../lib/time";
 import { assertPatientAccess, authorize, scopePatient } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
-import { computeTotals, createInvoice, invoiceWithDetails } from "./billing.service";
+import { assertBillAccess, billerOf, billingScope, computeTotals, createInvoice, invoiceWithDetails } from "./billing.service";
 import { renderInvoiceHtml } from "./invoice.template";
 
 export const invoiceRouter = Router();
@@ -31,6 +31,8 @@ const invoiceBody = z.object({
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   interState: z.boolean().default(false),
   issue: z.boolean().default(false),
+  /** Super Admin only: whose bill this is. Left out: worked out from the visit, plan or regular physio. */
+  therapistId: z.string().uuid().nullable().optional(),
 });
 
 const listQuery = paginationQuery.extend({
@@ -38,6 +40,8 @@ const listQuery = paginationQuery.extend({
   patientId: z.string().uuid().optional(),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** Super Admin: one physio's bills ("none" = not linked to a physio). Physios always get their own. */
+  therapistId: z.union([z.string().uuid(), z.literal("none")]).optional(),
 });
 
 invoiceRouter.get(
@@ -46,15 +50,17 @@ invoiceRouter.get(
   validate({ query: listQuery }),
   handler(async (req, res) => {
     const query = q<z.infer<typeof listQuery>>(req);
+    const scope = billingScope(req.user, query.therapistId);
     const where: Prisma.InvoiceWhereInput = {
       deletedAt: null,
       status: query.status,
+      ...(scope ? { therapistId: scope === "none" ? null : scope } : {}),
       patientId: scopePatient(req, query.patientId),
       ...(query.from || query.to ? { createdAt: { ...(query.from ? { gte: dayRange(query.from).gte } : {}), ...(query.to ? { lt: dayRange(query.to).lt } : {}) } } : {}),
       ...(query.search ? { OR: [{ invoiceNo: { contains: query.search, mode: "insensitive" } }, { patient: { firstName: { contains: query.search, mode: "insensitive" } } }] } : {}),
     };
     const [data, total] = await Promise.all([
-      prisma.invoice.findMany({ where, ...paging(query), orderBy: { createdAt: "desc" }, include: { patient: { select: { id: true, patientCode: true, firstName: true, lastName: true } } } }),
+      prisma.invoice.findMany({ where, ...paging(query), orderBy: { createdAt: "desc" }, include: { patient: { select: { id: true, patientCode: true, firstName: true, lastName: true } }, therapist: { select: { id: true, user: { select: { name: true } } } } } }),
       prisma.invoice.count({ where }),
     ]);
     ok(res, data, meta(query, total));
@@ -80,7 +86,7 @@ invoiceRouter.post(
   validate({ body: invoiceBody }),
   handler(async (req, res) => {
     const { issue, dueDate, ...input } = req.body;
-    const inv = await prisma.$transaction((tx) => createInvoice(tx, { ...input, dueDate: dueDate ? dateOnly(dueDate) : undefined }, req.user!.id, issue));
+    const inv = await prisma.$transaction((tx) => createInvoice(tx, { ...input, dueDate: dueDate ? dateOnly(dueDate) : undefined }, billerOf(req), issue));
     await audit(req, "CREATE", "Invoice", inv.id, null, inv);
     created(res, inv);
   }),
@@ -93,6 +99,7 @@ invoiceRouter.get(
   handler(async (req, res) => {
     const inv = await invoiceWithDetails(req.params.id);
     assertPatientAccess(req, inv.patientId);
+    assertBillAccess(req.user, inv);
     ok(res, inv);
   }),
 );
@@ -104,6 +111,7 @@ invoiceRouter.patch(
   validate({ params: idParam, body: invoiceBody.omit({ patientId: true, issue: true }).partial() }),
   handler(async (req, res) => {
     const before = await prisma.invoice.findUniqueOrThrow({ where: { id: req.params.id }, include: { items: true } });
+    assertBillAccess(req.user, before);
     if (before.status !== "DRAFT") throw unprocessable("INVOICE_LOCKED", "Issued invoices cannot be edited. Cancel or refund instead.");
     const inv = await prisma.$transaction(async (tx) => {
       await tx.invoice.delete({ where: { id: before.id } });
@@ -117,8 +125,10 @@ invoiceRouter.patch(
           notes: req.body.notes ?? before.notes ?? undefined,
           dueDate: req.body.dueDate ? dateOnly(req.body.dueDate) : before.dueDate ?? undefined,
           interState: req.body.interState,
+          // Editing keeps whose bill it is unless the Super Admin changes it.
+          therapistId: req.body.therapistId !== undefined ? req.body.therapistId : before.therapistId,
         },
-        req.user!.id,
+        billerOf(req),
       );
     });
     await audit(req, "UPDATE", "Invoice", inv.id, before, inv);
@@ -132,6 +142,7 @@ invoiceRouter.post(
   validate({ params: idParam }),
   handler(async (req, res) => {
     const inv = await prisma.invoice.findUniqueOrThrow({ where: { id: req.params.id } });
+    assertBillAccess(req.user, inv);
     if (inv.status !== "DRAFT") throw unprocessable("INVALID_STATUS", `Invoice is ${inv.status}`);
     const updated = await prisma.invoice.update({ where: { id: inv.id }, data: { status: "ISSUED", issuedAt: new Date() } });
     await audit(req, "UPDATE", "Invoice", inv.id, { status: inv.status }, { status: "ISSUED" });
@@ -145,6 +156,7 @@ invoiceRouter.post(
   validate({ params: idParam, body: z.object({ reason: z.string().min(3) }) }),
   handler(async (req, res) => {
     const inv = await prisma.invoice.findUniqueOrThrow({ where: { id: req.params.id } });
+    assertBillAccess(req.user, inv);
     if (inv.paidAmount.gt(0)) throw unprocessable("HAS_PAYMENTS", "Invoice has payments. Refund them first.");
     if (inv.status === "CANCELLED") throw unprocessable("INVALID_STATUS", "Already cancelled");
     const updated = await prisma.invoice.update({ where: { id: inv.id }, data: { status: "CANCELLED", notes: `${inv.notes ?? ""}\n[Cancelled] ${req.body.reason}`.trim() } });
@@ -161,6 +173,7 @@ invoiceRouter.get(
   handler(async (req, res) => {
     const inv = await invoiceWithDetails(req.params.id);
     assertPatientAccess(req, inv.patientId);
+    assertBillAccess(req.user, inv);
     res.type("html").send(renderInvoiceHtml(inv));
   }),
 );

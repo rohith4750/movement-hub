@@ -6,20 +6,24 @@ import { addDays, dayRange, todayLocal } from "../../lib/time";
 import { authorize } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { patientProgress } from "../patients/patient.routes";
+import { billingScope } from "../billing/billing.service";
 
 export const reportRouter = Router();
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** Optional for the Super Admin: one physio's figures. Physios always get their own. */
+const therapistFilter = z.string().uuid().optional();
 const rangeQuery = z.object({ from: date.default(() => `${todayLocal().slice(0, 7)}-01`), to: date.default(() => todayLocal()) });
 type Range = z.infer<typeof rangeQuery>;
 const span = (r: Range) => ({ gte: dayRange(r.from).gte, lt: dayRange(r.to).lt });
 const num = (v: Prisma.Decimal | null | undefined) => Number(v ?? 0);
 
-/** Successful money in, minus processed refunds, within a range. */
-async function netRevenue(range: { gte: Date; lt: Date }) {
+/** Successful money in, minus processed refunds, within a range — optionally one physio's bills only. */
+async function netRevenue(range: { gte: Date; lt: Date }, therapistId?: string) {
+  const own = therapistId ? { invoice: { therapistId } } : {};
   const [paid, refunded] = await Promise.all([
-    prisma.payment.aggregate({ _sum: { amount: true }, where: { status: { in: ["SUCCESS", "PARTIALLY_REFUNDED", "REFUNDED"] }, paidAt: range } }),
-    prisma.refund.aggregate({ _sum: { amount: true }, where: { status: { not: "FAILED" }, createdAt: range } }),
+    prisma.payment.aggregate({ _sum: { amount: true }, where: { status: { in: ["SUCCESS", "PARTIALLY_REFUNDED", "REFUNDED"] }, paidAt: range, ...own } }),
+    prisma.refund.aggregate({ _sum: { amount: true }, where: { status: { not: "FAILED" }, createdAt: range, ...(therapistId ? { payment: own } : {}) } }),
   ]);
   return num(paid._sum.amount) - num(refunded._sum.amount);
 }
@@ -46,8 +50,9 @@ reportRouter.get(
       }),
       // Count today's slots per therapist and status in the database instead of loading every slot row.
       prisma.therapistSlot.groupBy({ by: ["therapistId", "status"], where: { startAt: todayR }, _count: { _all: true } }),
-      therapistId ? Promise.resolve(null) : netRevenue(todayR),
-      therapistId ? Promise.resolve(null) : netRevenue(monthR),
+      // Physios see what they collected from their own patients; the Super Admin sees the clinic.
+      netRevenue(todayR, billingScope(req.user)),
+      netRevenue(monthR, billingScope(req.user)),
       prisma.appointment.findMany({
         where: { startAt: { gte: new Date(), lt: dayRange(addDays(today, 1)).lt }, therapistId, status: { in: ["SCHEDULED", "CONFIRMED", "CHECKED_IN"] } },
         orderBy: { startAt: "asc" },
@@ -127,23 +132,37 @@ reportRouter.get(
 reportRouter.get(
   "/revenue",
   authorize("ADMIN", "ACCOUNTANT"),
-  validate({ query: rangeQuery.extend({ groupBy: z.enum(["day", "month"]).default("day") }) }),
+  validate({ query: rangeQuery.extend({ groupBy: z.enum(["day", "month"]).default("day"), therapistId: therapistFilter }) }),
   handler(async (req, res) => {
-    const r = q<Range & { groupBy: "day" | "month" }>(req);
+    const r = q<Range & { groupBy: "day" | "month"; therapistId?: string }>(req);
     const s = span(r);
+    const tid = billingScope(req.user, r.therapistId) ?? null;
+    const ownPay = tid ? Prisma.sql`AND "invoiceId" IN (SELECT "id" FROM "Invoice" WHERE "therapistId" = ${tid})` : Prisma.empty;
+    const ownInv = tid ? Prisma.sql`AND i."therapistId" = ${tid}` : Prisma.empty;
     const unit = r.groupBy === "month" ? Prisma.sql`'month'` : Prisma.sql`'day'`;
     const rows = await prisma.$queryRaw<{ period: Date; method: string; total: Prisma.Decimal; count: bigint }[]>`
       SELECT date_trunc(${unit}, "paidAt" AT TIME ZONE 'Asia/Kolkata') AS period, "method", SUM("amount") AS total, COUNT(*) AS count
-      FROM "Payment" WHERE "status" IN ('SUCCESS','PARTIALLY_REFUNDED','REFUNDED') AND "paidAt" >= ${s.gte} AND "paidAt" < ${s.lt}
+      FROM "Payment" WHERE "status" IN ('SUCCESS','PARTIALLY_REFUNDED','REFUNDED') AND "paidAt" >= ${s.gte} AND "paidAt" < ${s.lt} ${ownPay}
       GROUP BY 1, 2 ORDER BY 1`;
     const byType = await prisma.$queryRaw<{ type: string; total: Prisma.Decimal }[]>`
       SELECT ii."type", SUM(ii."amount") AS total FROM "InvoiceItem" ii JOIN "Invoice" i ON i."id" = ii."invoiceId"
-      WHERE i."status" NOT IN ('DRAFT','CANCELLED') AND i."issuedAt" >= ${s.gte} AND i."issuedAt" < ${s.lt} GROUP BY 1`;
+      WHERE i."status" NOT IN ('DRAFT','CANCELLED') AND i."issuedAt" >= ${s.gte} AND i."issuedAt" < ${s.lt} ${ownInv} GROUP BY 1`;
+    // Clinic view: what each physio collected (money in on their bills) — the basis for their share.
+    const byTherapist = tid
+      ? []
+      : await prisma.$queryRaw<{ therapistId: string | null; name: string | null; total: Prisma.Decimal; payments: bigint }[]>`
+          SELECT i."therapistId", u."name", SUM(p."amount") AS total, COUNT(*) AS payments
+          FROM "Payment" p JOIN "Invoice" i ON i."id" = p."invoiceId"
+          LEFT JOIN "Therapist" t ON t."id" = i."therapistId" LEFT JOIN "User" u ON u."id" = t."userId"
+          WHERE p."status" IN ('SUCCESS','PARTIALLY_REFUNDED','REFUNDED') AND p."paidAt" >= ${s.gte} AND p."paidAt" < ${s.lt}
+          GROUP BY 1, 2 ORDER BY 3 DESC`;
     ok(res, {
       range: r,
-      netRevenue: await netRevenue(s),
+      therapistId: tid,
+      netRevenue: await netRevenue(s, tid ?? undefined),
       series: rows.map((x) => ({ period: x.period, method: x.method, total: num(x.total), count: Number(x.count) })),
       byServiceType: byType.map((x) => ({ type: x.type, total: num(x.total) })),
+      byTherapist: byTherapist.map((x) => ({ therapistId: x.therapistId, name: x.name ?? "Not linked to a physio", total: num(x.total), payments: Number(x.payments) })),
     });
   }),
 );
@@ -200,12 +219,15 @@ reportRouter.get(
 reportRouter.get(
   "/packages",
   authorize("ADMIN", "ACCOUNTANT"),
-  validate({ query: rangeQuery }),
+  validate({ query: rangeQuery.extend({ therapistId: therapistFilter }) }),
   handler(async (req, res) => {
-    const r = q<Range>(req);
+    const r = q<Range & { therapistId?: string }>(req);
+    const tid = billingScope(req.user, r.therapistId);
+    // A package is a physio's when its invoice is theirs.
+    const own = tid ? { invoiceItems: { some: { invoice: { therapistId: tid } } } } : {};
     const [sold, byStatus, catalogue] = await Promise.all([
-      prisma.patientPackage.groupBy({ by: ["packageId"], where: { createdAt: span(r) }, _count: true, _sum: { pricePaid: true, totalSessions: true, usedSessions: true } }),
-      prisma.patientPackage.groupBy({ by: ["status"], _count: true }),
+      prisma.patientPackage.groupBy({ by: ["packageId"], where: { createdAt: span(r), ...own }, _count: true, _sum: { pricePaid: true, totalSessions: true, usedSessions: true } }),
+      prisma.patientPackage.groupBy({ by: ["status"], where: own, _count: true }),
       prisma.treatmentPackage.findMany({ select: { id: true, name: true, tier: true } }),
     ]);
     ok(res, {
@@ -219,9 +241,11 @@ reportRouter.get(
 reportRouter.get(
   "/outstanding",
   authorize("ADMIN", "ACCOUNTANT"),
-  handler(async (_req, res) => {
+  validate({ query: z.object({ therapistId: therapistFilter }) }),
+  handler(async (req, res) => {
+    const tid = billingScope(req.user, q<{ therapistId?: string }>(req).therapistId);
     const invoices = await prisma.invoice.findMany({
-      where: { status: { in: ["ISSUED", "PARTIALLY_PAID"] }, deletedAt: null },
+      where: { status: { in: ["ISSUED", "PARTIALLY_PAID"] }, deletedAt: null, ...(tid ? { therapistId: tid } : {}) },
       orderBy: { issuedAt: "asc" },
       include: { patient: { select: { id: true, patientCode: true, firstName: true, lastName: true, phone: true } } },
     });
@@ -243,17 +267,18 @@ reportRouter.get(
   validate({ query: rangeQuery.extend({ type: z.enum(["payments", "appointments", "invoices"]) }) }),
   handler(async (req, res) => {
     const r = q<Range & { type: "payments" | "appointments" | "invoices" }>(req);
+    const tid = billingScope(req.user);
     let rows: Record<string, unknown>[] = [];
     if (r.type === "payments") {
-      rows = (await prisma.payment.findMany({ where: { paidAt: span(r) }, include: { invoice: { select: { invoiceNo: true } } }, orderBy: { paidAt: "asc" } })).map((p) => ({
+      rows = (await prisma.payment.findMany({ where: { paidAt: span(r), ...(tid ? { invoice: { therapistId: tid } } : {}) }, include: { invoice: { select: { invoiceNo: true } } }, orderBy: { paidAt: "asc" } })).map((p) => ({
         receiptNo: p.receiptNo, invoiceNo: p.invoice.invoiceNo, method: p.method, status: p.status, amount: num(p.amount), paidAt: p.paidAt?.toISOString(),
       }));
     } else if (r.type === "appointments") {
-      rows = (await prisma.appointment.findMany({ where: { startAt: span(r) }, include: { patient: true, therapist: { include: { user: true } } }, orderBy: { startAt: "asc" } })).map((a) => ({
+      rows = (await prisma.appointment.findMany({ where: { startAt: span(r), ...(tid ? { therapistId: tid } : {}) }, include: { patient: true, therapist: { include: { user: true } } }, orderBy: { startAt: "asc" } })).map((a) => ({
         appointmentNo: a.appointmentNo, type: a.type, status: a.status, startAt: a.startAt.toISOString(), patient: `${a.patient.firstName} ${a.patient.lastName ?? ""}`.trim(), therapist: a.therapist.user.name,
       }));
     } else {
-      rows = (await prisma.invoice.findMany({ where: { issuedAt: span(r) }, include: { patient: true }, orderBy: { issuedAt: "asc" } })).map((i) => ({
+      rows = (await prisma.invoice.findMany({ where: { issuedAt: span(r), ...(tid ? { therapistId: tid } : {}) }, include: { patient: true }, orderBy: { issuedAt: "asc" } })).map((i) => ({
         invoiceNo: i.invoiceNo, patient: `${i.patient.firstName} ${i.patient.lastName ?? ""}`.trim(), status: i.status, taxable: num(i.taxableAmount),
         cgst: num(i.cgstAmount), sgst: num(i.sgstAmount), igst: num(i.igstAmount), total: num(i.totalAmount), paid: num(i.paidAmount), due: num(i.dueAmount), issuedAt: i.issuedAt?.toISOString(),
       }));

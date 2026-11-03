@@ -172,6 +172,9 @@ export interface Invoice {
   issuedAt: string | null;
   createdAt: string;
   patient?: { id: string; patientCode: string; firstName: string; lastName: string | null };
+  /** The physio this bill belongs to (they collect it; it counts in their collections). */
+  therapistId?: string | null;
+  therapist?: { id: string; user: { name: string } } | null;
 }
 
 export interface InvoiceDetail extends Invoice {

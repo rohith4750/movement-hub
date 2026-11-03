@@ -431,6 +431,7 @@ model Therapist {
   treatmentPlans   TreatmentPlan[]
   therapySessions  TherapySession[]
   homeVisits       HomeVisit[]
+  invoices         Invoice[]
   waitlist         Waitlist[]
   regularPatients Patient[] @relation("PrimaryTherapist")
 }
@@ -861,17 +862,22 @@ model Invoice {
   issuedAt       DateTime?
   dueDate        DateTime?     @db.Date
   createdById    String
+  /// The physiotherapist this bill belongs to: they see it, collect its payments, and it
+  /// counts in their collections. Set when the invoice is created.
+  therapistId    String?
   notes          String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   deletedAt      DateTime?
 
-  branch   Branch        @relation(fields: [branchId], references: [id])
-  patient  Patient       @relation(fields: [patientId], references: [id])
-  items    InvoiceItem[]
-  payments Payment[]
+  branch    Branch        @relation(fields: [branchId], references: [id])
+  patient   Patient       @relation(fields: [patientId], references: [id])
+  therapist Therapist?    @relation(fields: [therapistId], references: [id])
+  items     InvoiceItem[]
+  payments  Payment[]
 
   @@index([patientId, status])
+  @@index([therapistId, status])
   @@index([issuedAt])
 }
 

@@ -54,7 +54,7 @@ export default function TodayScreen() {
           <Stat label="Completed" value={isPhysio ? done : dash.data.completedSessionsToday} />
           <Stat label="Pending" value={dash.data.pendingAppointments} hint="awaiting confirmation" />
           {canSeeMoney && dash.data.revenueToday !== null ? (
-            <Stat label="Collected today" value={inr(dash.data.revenueToday)} hint={`Month ${inr(dash.data.revenueMonth)}`} />
+            <Stat label={isPhysio ? "I collected today" : "Collected today"} value={inr(dash.data.revenueToday)} hint={`Month ${inr(dash.data.revenueMonth)}`} />
           ) : (
             <Stat label="Physios free" value={dash.data.availableTherapists} />
           )}

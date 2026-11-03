@@ -10,6 +10,7 @@ import { validate } from "../../middleware/validate";
 import { phoneSchema } from "../../lib/validators";
 import { badRequest, notFound, unprocessable } from "../../lib/http-error";
 import { visitStats } from "./patient-stats";
+import { billingScope } from "../billing/billing.service";
 
 export const patientRouter = Router();
 
@@ -375,7 +376,9 @@ patientRouter.get(
   validate({ params: idParam }),
   handler(async (req, res) => {
     assertPatientAccess(req, req.params.id);
-    ok(res, await prisma.invoice.findMany({ where: { patientId: req.params.id, deletedAt: null }, orderBy: { createdAt: "desc" }, include: { items: true, payments: true } }));
+    // A physio sees the bills that are theirs, not another physio's for the same patient.
+    const own = billingScope(req.user);
+    ok(res, await prisma.invoice.findMany({ where: { patientId: req.params.id, deletedAt: null, ...(own ? { therapistId: own } : {}) }, orderBy: { createdAt: "desc" }, include: { items: true, payments: true } }));
   }),
 );
 

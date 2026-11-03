@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { date, fullName, inr } from "@/lib/format";
 import { qk } from "@/lib/query-keys";
+import { TherapistFilter } from "@/components/therapist-filter";
 import { colors, radius, space } from "@/theme";
 
 type Filter = "due" | "DRAFT" | "PAID" | "CANCELLED" | "all";
@@ -23,6 +24,7 @@ interface InvoiceRow {
   issuedAt: string | null;
   createdAt: string;
   patient: { id: string; patientCode: string; firstName: string; lastName: string | null };
+  therapist?: { id: string; user: { name: string } } | null;
 }
 
 const DUE = ["ISSUED", "PARTIALLY_PAID"];
@@ -38,6 +40,9 @@ export default function Billing() {
 
 function BillingList() {
   const user = useAuth((s) => s.user);
+  // Each physio bills and collects for their own patients; the Super Admin sees everyone's.
+  const isPhysio = user?.role === "PHYSIOTHERAPIST";
+  const [physio, setPhysio] = useState("");
   const [filter, setFilter] = useState<Filter>("due");
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -49,8 +54,8 @@ function BillingList() {
   // "To collect" spans two statuses, so it is fetched unfiltered and narrowed on the device.
   const apiStatus = filter === "due" || filter === "all" ? undefined : filter;
   const q = useQuery({
-    queryKey: qk.invoices.list({ status: apiStatus ?? "any", search: debounced }),
-    queryFn: () => api.page<InvoiceRow>("/invoices", { status: apiStatus, search: debounced || undefined, limit: 100 }),
+    queryKey: qk.invoices.list({ status: apiStatus ?? "any", search: debounced, therapistId: isPhysio ? "me" : physio }),
+    queryFn: () => api.page<InvoiceRow>("/invoices", { status: apiStatus, search: debounced || undefined, therapistId: isPhysio ? undefined : physio || undefined, limit: 100 }),
   });
   const rows = (q.data?.data ?? []).filter((i) => (filter === "due" ? DUE.includes(i.status) : true));
   const outstanding = rows.filter((i) => DUE.includes(i.status)).reduce((s, i) => s + Number(i.dueAmount), 0);
@@ -58,7 +63,12 @@ function BillingList() {
 
   return (
     <Screen edges={["top", "bottom"]} refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
-      <TopBar title="Billing" onBack={() => goBack("/more")} />
+      <TopBar title={isPhysio ? "My patients' bills" : "Billing"} onBack={() => goBack("/more")} />
+      {isPhysio ? (
+        <Muted style={{ fontSize: 12 }}>Bills for your patients. Payments you collect here count in your collections.</Muted>
+      ) : (
+        <TherapistFilter value={physio} onChange={setPhysio} withUnlinked />
+      )}
       {canCreate ? <Button title="New invoice" variant="gold" icon="add-circle-outline" onPress={() => router.push("/invoice/new")} /> : null}
 
       <Row style={styles.search}>
@@ -110,7 +120,10 @@ function BillingList() {
                   <Badge status={i.status} />
                 </Row>
                 <Row style={{ justifyContent: "space-between" }}>
-                  <Muted style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>{i.invoiceNo} · {date(i.issuedAt ?? i.createdAt)}</Muted>
+                  <Muted style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>
+                    {i.invoiceNo} · {date(i.issuedAt ?? i.createdAt)}
+                    {!isPhysio ? ` · ${i.therapist?.user.name ?? "No physio"}` : ""}
+                  </Muted>
                   <Row gap={4}>
                     <Text weight="bold">{inr(i.totalAmount)}</Text>
                     <Ionicons name="chevron-forward" size={16} color={colors.muted} />

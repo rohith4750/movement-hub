@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
 import { useMonthlyReport } from "@/lib/queries";
 import { qk } from "@/lib/query-keys";
+import { TherapistFilter } from "@/components/therapist-filter";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -16,6 +17,8 @@ interface Revenue {
   netRevenue: number;
   series: { period: string; method: string; total: number }[];
   byServiceType: { type: string; total: number }[];
+  /** Super Admin view: money in on each physio's bills. */
+  byTherapist?: { therapistId: string | null; name: string; total: number; payments: number }[];
 }
 interface Appts {
   total: number;
@@ -49,16 +52,21 @@ export default function Reports() {
 function ReportsScreen() {
   const user = useAuth((s) => s.user);
   const isAdmin = hasRole(user, "ADMIN");
+  // Physios see what they collected from their own patients; the Super Admin can pick one physio.
+  const isPhysio = user?.role === "PHYSIOTHERAPIST";
+  const [physio, setPhysio] = useState("");
+  const who = isPhysio ? "me" : physio;
+  const money = { therapistId: isPhysio ? undefined : physio || undefined };
   const [from, setFrom] = useState(() => `${today().slice(0, 7)}-01`);
   const [to, setTo] = useState(() => today());
   const rangeOk = !!from && !!to && from <= to;
   const range = { from, to };
 
-  const revenue = useQuery({ queryKey: qk.report("revenue", range), queryFn: () => api.get<Revenue>("/reports/revenue", range), enabled: rangeOk });
+  const revenue = useQuery({ queryKey: qk.report("revenue", { ...range, who }), queryFn: () => api.get<Revenue>("/reports/revenue", { ...range, ...money }), enabled: rangeOk });
   const appts = useQuery({ queryKey: qk.report("appointments", range), queryFn: () => api.get<Appts>("/reports/appointments", range), enabled: rangeOk && isAdmin });
   const util = useQuery({ queryKey: qk.report("utilization", range), queryFn: () => api.get<Util>("/reports/therapist-utilization", range), enabled: rangeOk && isAdmin });
-  const pkgs = useQuery({ queryKey: qk.report("packages", range), queryFn: () => api.get<Pkgs>("/reports/packages", range), enabled: rangeOk });
-  const due = useQuery({ queryKey: qk.report("outstanding"), queryFn: () => api.get<Outstanding>("/reports/outstanding") });
+  const pkgs = useQuery({ queryKey: qk.report("packages", { ...range, who }), queryFn: () => api.get<Pkgs>("/reports/packages", { ...range, ...money }), enabled: rangeOk });
+  const due = useQuery({ queryKey: qk.report("outstanding", { who }), queryFn: () => api.get<Outstanding>("/reports/outstanding", money) });
   const monthly = useMonthlyReport(6, isAdmin);
 
   const all = [revenue, appts, util, pkgs, due, monthly];
@@ -77,7 +85,12 @@ function ReportsScreen() {
 
   return (
     <Screen edges={["top", "bottom"]} refreshing={refreshing} onRefresh={() => all.forEach((x) => x.refetch())}>
-      <TopBar title="Reports" onBack={() => goBack("/more")} />
+      <TopBar title={isPhysio ? "My collections" : "Reports"} onBack={() => goBack("/more")} />
+      {isPhysio ? (
+        <Muted style={{ fontSize: 12 }}>Money in, packages and outstanding bills for your own patients.</Muted>
+      ) : (
+        <TherapistFilter value={physio} onChange={setPhysio} />
+      )}
 
       <Card>
         <Row gap={space.sm} style={{ alignItems: "flex-start" }}>
@@ -98,6 +111,15 @@ function ReportsScreen() {
 
       <SectionTitle>Daily collections</SectionTitle>
       <Card>{revenue.isLoading ? <Loading /> : <Bars rows={daily.map(([d, v]) => ({ label: date(`${d}T06:00:00Z`), value: v, display: inr(v), color: colors.gold500 }))} />}</Card>
+
+      {isAdmin && !physio && revenue.data?.byTherapist?.length ? (
+        <>
+          <SectionTitle>Collections by physio</SectionTitle>
+          <Card>
+            <Bars rows={revenue.data.byTherapist.map((t) => ({ label: `${t.name} (${t.payments})`, value: t.total, display: inr(t.total), color: colors.navy600 }))} />
+          </Card>
+        </>
+      ) : null}
 
       <SectionTitle>Revenue by service</SectionTitle>
       <Card>{revenue.isLoading ? <Loading /> : <Bars rows={(revenue.data?.byServiceType ?? []).map((s) => ({ label: label(s.type), value: s.total, display: inr(s.total) }))} />}</Card>

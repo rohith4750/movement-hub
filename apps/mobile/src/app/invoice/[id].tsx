@@ -111,6 +111,7 @@ function InvoiceDetailScreen() {
               <Text weight="semibold" style={{ color: colors.navy700, textDecorationLine: "underline" }}>{fullName(inv.patient)} · {inv.patient.patientCode}</Text>
             </Pressable>
             <Muted>{inv.issuedAt ? `Issued ${date(inv.issuedAt)}` : "Draft (not issued yet)"} · {inv.patient.phone}</Muted>
+            <Muted style={{ fontSize: 12 }}>Physio: {inv.therapist?.user.name ?? "Not linked (Super Admin collects)"}</Muted>
           </Card>
 
           <Card>
