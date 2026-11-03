@@ -317,11 +317,67 @@ export function createHandler(root: RouterInstance, opts: { corsOrigins: string[
   };
 }
 
-/* ─────────────── In-memory rate limiter ─────────────── */
+/* ─────────────── Rate limiter ─────────────── */
+
+/**
+ * Where counters live. The default in-memory store is per server instance (fine as a coarse
+ * abuse guard); security-sensitive limiters pass a shared store so every instance sees the same
+ * counts (see lib/rate-limit-store.ts).
+ */
+export interface RateLimitStore {
+  /** Atomically count one request; starts a fresh window when the old one has expired. */
+  hit(key: string, windowMs: number): Promise<{ count: number; resetAt: number }> | { count: number; resetAt: number };
+  /** Take back one counted request (rejected, or successful with skipSuccessfulRequests). */
+  undo(key: string): Promise<void> | void;
+}
+
+export function memoryStore(): RateLimitStore {
+  const hits = new Map<string, { count: number; resetAt: number }>();
+  const timer = setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of hits) if (now > v.resetAt) hits.delete(k);
+  }, 60_000);
+  timer.unref?.();
+  return {
+    hit(key, windowMs) {
+      const now = Date.now();
+      let cur = hits.get(key);
+      if (!cur || now > cur.resetAt) {
+        cur = { count: 0, resetAt: now + windowMs };
+        hits.set(key, cur);
+      }
+      cur.count++;
+      return { count: cur.count, resetAt: cur.resetAt };
+    },
+    undo(key) {
+      const cur = hits.get(key);
+      if (cur && cur.count > 0) cur.count--;
+    },
+  };
+}
+
+/**
+ * The client a limit applies to. IPv6 clients usually control a whole /64, so they are limited
+ * per /64 prefix rather than per address (otherwise one network gets unlimited attempts).
+ */
+export function clientKey(ip: string | undefined): string {
+  if (!ip) return "unknown";
+  const v4 = ip.match(/^(?:::ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  if (v4) return v4[1];
+  if (!ip.includes(":")) return ip;
+  const [head, tail = ""] = ip.split("%")[0].toLowerCase().split("::");
+  const h = head ? head.split(":") : [];
+  const t = ip.includes("::") && tail ? tail.split(":") : [];
+  const groups = ip.includes("::") ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t] : h;
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
 
 export function rateLimit(options: {
   windowMs: number;
   limit: number;
+  /** Separates this limiter's counters from others in a shared store. */
+  name?: string;
+  store?: RateLimitStore;
   standardHeaders?: boolean;
   legacyHeaders?: boolean;
   /** Don't count requests that end with a status below 400. */
@@ -330,37 +386,34 @@ export function rateLimit(options: {
   handler?: (req: Request, res: Response) => unknown;
   message?: string;
 }): Handler {
-  const hits = new Map<string, { count: number; resetAt: number }>();
-  const timer = setInterval(() => {
-    const now = Date.now();
-    for (const [k, v] of hits) if (now > v.resetAt) hits.delete(k);
-  }, 60_000);
-  timer.unref?.();
+  const store = options.store ?? memoryStore();
+  const prefix = options.name ?? "default";
 
-  return (req, res, next) => {
-    const key = req.ip || "unknown";
-    const now = Date.now();
-    let cur = hits.get(key);
-    if (!cur || now > cur.resetAt) {
-      cur = { count: 0, resetAt: now + options.windowMs };
-      hits.set(key, cur);
-    }
-    cur.count++;
+  return async (req, res, next) => {
+    const key = `${prefix}:${clientKey(req.ip)}`;
+    // Count first, atomically, so parallel requests can't all slip under the limit.
+    const cur = await store.hit(key, options.windowMs);
     if (options.standardHeaders) {
       res.setHeader("RateLimit-Limit", String(options.limit));
       res.setHeader("RateLimit-Remaining", String(Math.max(0, options.limit - cur.count)));
-      res.setHeader("RateLimit-Reset", String(Math.ceil((cur.resetAt - now) / 1000)));
+      res.setHeader("RateLimit-Reset", String(Math.max(0, Math.ceil((cur.resetAt - Date.now()) / 1000))));
     }
     if (cur.count > options.limit) {
-      cur.count--; // a rejected request doesn't extend the block
+      await store.undo(key); // a rejected request doesn't extend the block
       if (options.handler) return options.handler(req, res);
       return res.status(429).json({ success: false, error: { code: "TOO_MANY_REQUESTS", message: options.message ?? "Too many requests, please try again later." } });
     }
     if (options.skipSuccessfulRequests) {
-      const entry = cur;
-      res.once("finish", () => {
-        if (res.statusCode < 400 && entry.count > 0) entry.count--;
-      });
+      // Give the attempt back BEFORE the response is sent: on serverless, work after the
+      // response may never run, which would leave successful sign-ins counted as failures.
+      const end = res.end.bind(res) as (...a: unknown[]) => Response;
+      res.end = ((...args: unknown[]) => {
+        if (res.statusCode >= 400) return end(...args);
+        Promise.resolve(store.undo(key))
+          .catch((e) => console.warn("[rate-limit] undo failed:", (e as Error)?.message ?? e))
+          .finally(() => end(...args));
+        return res;
+      }) as Response["end"];
     }
     next();
   };

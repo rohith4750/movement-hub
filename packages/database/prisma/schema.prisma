@@ -745,6 +745,7 @@ model PackageTransaction {
   patientPackage PatientPackage  @relation(fields: [patientPackageId], references: [id])
   therapySession TherapySession? @relation(fields: [therapySessionId], references: [id])
 
+  @@unique([therapySessionId, type]) // a therapy session can use a package session only once
   @@index([patientPackageId, createdAt])
 }
 
@@ -811,6 +812,8 @@ model HomeVisit {
   checkInLat    Decimal?        @db.Decimal(9, 6)
   checkInLng    Decimal?        @db.Decimal(9, 6)
   checkOutAt    DateTime?
+  checkOutLat   Decimal?        @db.Decimal(9, 6) // physio's GPS at check-out (not the patient's address)
+  checkOutLng   Decimal?        @db.Decimal(9, 6)
   notes         String?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
@@ -963,4 +966,13 @@ model AuditLog {
 
   @@index([entity, entityId])
   @@index([userId, createdAt])
+}
+
+/// Fixed-window request counters shared by every server instance (serverless-safe rate limiting).
+model RateLimit {
+  key     String   @id // "<limiter>:<client ip or /64 prefix>"
+  count   Int      @default(0)
+  resetAt DateTime
+
+  @@index([resetAt])
 }

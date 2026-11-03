@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { rateLimit } from "../../router";
+import { postgresStore } from "../../lib/rate-limit-store";
 import { z } from "zod";
 import { prisma, type User } from "@movement-hub/database";
 import { env } from "../../config/env";
@@ -13,11 +14,12 @@ import { authenticate, type AccessPayload } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { looksLikePhone, normalizePhone, phoneSchema } from "../../lib/validators";
 import { notify } from "../notifications/notification.service";
-import { assertNotLocked, checkPin, pinFields, pinInputSchema, pinLookup, pinSchema, recordPinResult } from "../../lib/pin";
+import { assertNotLocked, checkPin, pinFields, pinInputSchema, pinLookupCandidates, pinSchema, recordPinResult, rekeyPinLookup } from "../../lib/pin";
 
 export const authRouter = Router();
 
-const limiter = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false });
+// Auth limits live in Postgres so they hold across serverless instances and cold starts.
+const limiter = rateLimit({ name: "auth", store: postgresStore, windowMs: 15 * 60_000, limit: 20, standardHeaders: true, legacyHeaders: false });
 const phone = phoneSchema;
 const password = z.string().min(8).max(100);
 
@@ -73,8 +75,11 @@ authRouter.post(
 /* ─────────────── Staff mobile-app PIN ─────────────── */
 
 // PIN-only sign-in has no account to lock before the PIN matches, so wrong guesses are limited per
-// device/IP. Successful sign-ins don't count, so staff sharing the clinic Wi-Fi aren't blocked.
+// device/IP (per /64 for IPv6). Successful sign-ins don't count, so staff sharing the clinic Wi-Fi
+// aren't blocked.
 const pinLimiter = rateLimit({
+  name: "pin-login",
+  store: postgresStore,
   windowMs: 15 * 60_000,
   limit: 10,
   skipSuccessfulRequests: true,
@@ -90,13 +95,14 @@ authRouter.post(
   pinLimiter,
   validate({ body: z.object({ pin: pinInputSchema }) }),
   handler(async (req, res) => {
-    const user = await prisma.user.findUnique({ where: { pinLookup: pinLookup(req.body.pin) } });
+    const user = await prisma.user.findFirst({ where: { pinLookup: { in: pinLookupCandidates(req.body.pin) } } });
     // Belt and braces: the fingerprint matched, now verify the bcrypt hash too.
     if (!user || user.deletedAt || user.role === "PATIENT" || !(await checkPin(req.body.pin, user.pinHash))) {
       throw unauthorized("Incorrect PIN. Forgot it? Ask your admin to reset it.");
     }
     if (!user.isActive) throw unauthorized("Your account is disabled. Please contact your admin.");
     await assertNotLocked(user.id);
+    await rekeyPinLookup(user.id, user.pinLookup, req.body.pin);
     await recordPinResult(user.id, true, { ip: req.ip, userAgent: req.get("user-agent") });
     ok(res, await issueTokens(user, req));
   }),

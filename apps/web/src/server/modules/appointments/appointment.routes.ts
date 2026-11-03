@@ -262,8 +262,11 @@ appointmentRouter.delete(
   handler(async (req, res) => {
     // Admins may delete any unbilled appointment (including completed ones); receptionists only clean bookings.
     const force = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
-    const deleted = await deleteAppointment(req.params.id, { force, userId: req.user!.id });
-    await audit(req, "DELETE", "Appointment", req.params.id, deleted);
+    const deleted = await deleteAppointment(req.params.id, {
+      force,
+      userId: req.user!.id,
+      record: (snapshot, tx) => audit(req, "DELETE", "Appointment", req.params.id, snapshot, null, tx),
+    });
     ok(res, { deleted: true, appointmentNo: deleted.appointmentNo });
   }),
 );

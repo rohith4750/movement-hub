@@ -95,12 +95,30 @@ paymentRouter.post(
   }),
   handler(async (req, res) => {
     const inv = await payableInvoice(req.body.invoiceId);
-    if (D(req.body.amount).gt(inv.dueAmount)) throw unprocessable("OVERPAYMENT", `Amount exceeds balance due (${inv.dueAmount})`);
-    const pending = await prisma.$transaction(async (tx) =>
-      tx.payment.create({ data: { receiptNo: await nextCode(tx, "receipt"), invoiceId: inv.id, method: req.body.method, amount: req.body.amount, referenceNo: req.body.referenceNo, receivedById: req.user!.id } }),
-    );
-    const p = await confirmPayment(pending.id, {});
-    await audit(req, "CREATE", "Payment", p.id, null, p);
+    // One transaction with the invoice row locked: two payments recorded at the same moment are
+    // checked one after the other against the real balance, so the invoice can't be overpaid.
+    const p = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Invoice" WHERE "id" = ${inv.id} FOR UPDATE`;
+      const cur = await tx.invoice.findUniqueOrThrow({ where: { id: inv.id } });
+      if (!["ISSUED", "PARTIALLY_PAID"].includes(cur.status)) throw unprocessable("NOT_PAYABLE", `Invoice is ${cur.status}`);
+      if (D(req.body.amount).gt(cur.dueAmount)) throw unprocessable("OVERPAYMENT", `Amount exceeds balance due (${cur.dueAmount})`);
+      const payment = await tx.payment.create({
+        data: {
+          receiptNo: await nextCode(tx, "receipt"),
+          invoiceId: inv.id,
+          method: req.body.method,
+          amount: req.body.amount,
+          referenceNo: req.body.referenceNo,
+          receivedById: req.user!.id,
+          status: "SUCCESS",
+          paidAt: new Date(),
+        },
+      });
+      await refreshInvoiceBalance(tx, inv.id);
+      await audit(req, "CREATE", "Payment", payment.id, null, payment, tx);
+      return payment;
+    });
+    await notifyPatient(inv.patientId, "PAYMENT_CONFIRMATION", "payment_confirmation", { amount: p.amount.toString(), receiptNo: p.receiptNo, invoiceNo: inv.invoiceNo });
     created(res, p);
   }),
 );

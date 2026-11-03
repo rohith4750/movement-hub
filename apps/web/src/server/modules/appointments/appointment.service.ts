@@ -120,8 +120,13 @@ export async function afterBooked(appointmentId: string) {
   }
 }
 
-/** Move an appointment's status with history, enforcing the transition table. */
+/**
+ * Move an appointment's status with history, enforcing the transition table.
+ * The row is locked first, so two concurrent requests (double tap, network retry) can't both
+ * pass the status check: the second waits, then sees the new status and is refused.
+ */
 export async function transition(tx: Tx, appointmentId: string, to: AppointmentStatus, userId: string, note?: string, extra: Prisma.AppointmentUpdateInput = {}) {
+  await tx.$queryRaw`SELECT "id" FROM "Appointment" WHERE "id" = ${appointmentId} FOR UPDATE`;
   const a = await tx.appointment.findUnique({ where: { id: appointmentId } });
   if (!a) throw notFound("Appointment");
   if (!TRANSITIONS[a.status].includes(to)) throw unprocessable("INVALID_STATUS", `Cannot change appointment from ${a.status} to ${to}`);
@@ -195,13 +200,28 @@ export async function reschedule(appointmentId: string, newSlotId: string, userI
  * Permanently delete an appointment that holds no clinical or billing data
  * (e.g. booked by mistake, duplicate, cancelled, no-show). Frees the slot.
  * Completed visits, consultations, started sessions and billed appointments are medical/financial
- * records and are refused — cancel those instead. The audit log keeps a copy of what was deleted.
+ * records and are refused — cancel those instead.
+ *
+ * `record` receives a full snapshot (consultation + assessment, session + exercises, home visit,
+ * status history) and runs inside the same transaction, so the audit copy is guaranteed to exist
+ * if, and only if, the delete happens.
  */
-export async function deleteAppointment(appointmentId: string, opts: { force: boolean; userId: string }) {
+export async function deleteAppointment(
+  appointmentId: string,
+  opts: { force: boolean; userId: string; record: (snapshot: unknown, tx: Tx) => Promise<void> },
+) {
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "Appointment" WHERE "id" = ${appointmentId} FOR UPDATE`;
     const a = await tx.appointment.findUnique({
       where: { id: appointmentId },
-      include: { consultation: true, therapySession: true, homeVisit: true, invoiceItems: { select: { id: true } }, rescheduledTo: { select: { id: true } } },
+      include: {
+        consultation: { include: { assessment: true } },
+        therapySession: { include: { exercises: true } },
+        homeVisit: true,
+        history: { orderBy: { createdAt: "asc" } },
+        invoiceItems: { select: { id: true } },
+        rescheduledTo: { select: { id: true } },
+      },
     });
     if (!a) throw notFound("Appointment");
     // Billing is never silently changed — the invoice must be cancelled first.
@@ -253,6 +273,7 @@ export async function deleteAppointment(appointmentId: string, opts: { force: bo
       where: { status: "QUEUED", payload: { path: ["appointmentNo"], equals: a.appointmentNo } },
       data: { status: "FAILED", error: "Appointment deleted" },
     });
+    await opts.record(a, tx);
     return { appointmentNo: a.appointmentNo, patientId: a.patientId, therapistId: a.therapistId, type: a.type, status: a.status, startAt: a.startAt };
   });
 }

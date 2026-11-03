@@ -40,12 +40,31 @@ export const checkPin = (pin: string, hash: string | null) => (hash ? bcrypt.com
  * indexed lookup, and enforces "no two staff share a PIN" via a unique index. Without the server
  * secret the fingerprint can't be reversed or brute-forced offline.
  */
-export const pinLookup = (pin: string) => crypto.createHmac("sha256", `${env.JWT_REFRESH_SECRET}:mobile-pin`).update(pin).digest("hex");
+const hmac = (key: string, pin: string) => crypto.createHmac("sha256", `${key}:mobile-pin`).update(pin).digest("hex");
+
+export const pinLookup = (pin: string) => hmac(env.PIN_LOOKUP_SECRET, pin);
+
+/**
+ * Fingerprints written before PIN_LOOKUP_SECRET existed were keyed with JWT_REFRESH_SECRET, or
+ * with the old built-in fallback when that variable was unset. Sign-in still finds those rows and
+ * re-keys them on success (see rekeyPinLookup), so nobody has to have their PIN reset.
+ * The bcrypt hash is always verified as well, so a matching fingerprint alone never signs anyone in.
+ */
+const LEGACY_KEYS = [env.JWT_REFRESH_SECRET, "movement-hub-jwt-refresh-secret-32-chars-minimum-fallback"];
+
+/** Current fingerprint first, then the legacy ones. */
+export const pinLookupCandidates = (pin: string) => [...new Set([pinLookup(pin), ...LEGACY_KEYS.map((k) => hmac(k, pin))])];
+
+/** Move a user found by a legacy fingerprint onto the current key. */
+export async function rekeyPinLookup(userId: string, storedLookup: string | null, pin: string) {
+  const current = pinLookup(pin);
+  if (storedLookup !== current) await prisma.user.update({ where: { id: userId }, data: { pinLookup: current } });
+}
 
 /** Fields to store for a new PIN. Throws 409 if another active staff member already uses it. */
 export async function pinFields(pin: string, forUserId?: string) {
   const lookup = pinLookup(pin);
-  const taken = await prisma.user.findFirst({ where: { pinLookup: lookup, ...(forUserId ? { id: { not: forUserId } } : {}) }, select: { id: true } });
+  const taken = await prisma.user.findFirst({ where: { pinLookup: { in: pinLookupCandidates(pin) }, ...(forUserId ? { id: { not: forUserId } } : {}) }, select: { id: true } });
   if (taken) throw conflict("PIN_TAKEN", "This PIN is already used by another staff member. Please choose a different PIN.");
   return { pinHash: await hashPin(pin), pinLookup: lookup };
 }

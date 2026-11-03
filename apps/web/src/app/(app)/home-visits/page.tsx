@@ -31,7 +31,7 @@ export default function HomeVisitsPage() {
   const step = useMutation({
     mutationFn: async ({ id, action }: { id: string; action: string }) => {
       let coords: { latitude?: number; longitude?: number } = {};
-      if (action === "check-in" && "geolocation" in navigator) {
+      if ((action === "check-in" || action === "check-out") && "geolocation" in navigator) {
         coords = await new Promise((resolve) =>
           navigator.geolocation.getCurrentPosition((p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }), () => resolve({}), { timeout: 8000 }),
         );

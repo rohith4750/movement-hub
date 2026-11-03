@@ -64,13 +64,15 @@ function VisitList() {
   });
 
   const step = useMutation({
-    mutationFn: async ({ v, action }: { v: Visit; action: Step }) => {
+    // `gps` is true only for the assigned physio. A Super Admin updating on their behalf never
+    // sends a position: the admin's location is not the visit's location.
+    mutationFn: async ({ v, action, gps }: { v: Visit; action: Step; gps: boolean }) => {
       if (action === "check-out" && !(await confirm("Check out and complete?", `This completes the home visit for ${fullName(v.patient)}.`, "Complete"))) return null;
       let body: { latitude?: number; longitude?: number } = {};
       let note: string | undefined;
-      if (action === "check-in") {
+      if (gps && (action === "check-in" || action === "check-out")) {
         const pos = await currentPosition();
-        note = pos.note;
+        note = pos.note?.replace("the check-in", action === "check-in" ? "the check-in" : "the check-out");
         if (pos.latitude !== undefined) body = { latitude: pos.latitude, longitude: pos.longitude };
       }
       await api.post(`/home-visits/${v.id}/${action}`, body);
@@ -130,7 +132,10 @@ function VisitList() {
         <Empty icon="home-outline" title="No home visits" message={`Nothing scheduled on ${date(`${day}T06:00:00Z`)}.`} />
       ) : (
         q.data.map((v) => {
-          const mine = user?.role === "SUPER_ADMIN" || (user?.role === "PHYSIOTHERAPIST" && user.therapistId === v.therapist.id);
+          const assigned = user?.role === "PHYSIOTHERAPIST" && user.therapistId === v.therapist.id;
+          const adminOverride = user?.role === "SUPER_ADMIN"; // updates on the physio's behalf, without GPS
+          const mine = assigned || adminOverride;
+          const go = (action: Step) => step.mutate({ v, action, gps: assigned });
           const busy = step.isPending && step.variables?.v.id === v.id;
           return (
             <Card key={v.id}>
@@ -167,14 +172,17 @@ function VisitList() {
 
               {mine && ["SCHEDULED", "EN_ROUTE", "CHECKED_IN"].includes(v.status) ? (
                 <View style={{ gap: space.sm, marginTop: space.xs }}>
+                  {adminOverride && !assigned ? (
+                    <Muted style={{ fontSize: 12 }}>Admin: update on {v.therapist.user.name}&apos;s behalf. No GPS is recorded.</Muted>
+                  ) : null}
                   {v.status === "SCHEDULED" ? (
-                    <Button title="On my way" variant="ghost" icon="car-outline" onPress={() => step.mutate({ v, action: "en-route" })} loading={busy && step.variables?.action === "en-route"} disabled={step.isPending} />
+                    <Button title={assigned ? "On my way" : "Mark on the way"} variant="ghost" icon="car-outline" onPress={() => go("en-route")} loading={busy && step.variables?.action === "en-route"} disabled={step.isPending} />
                   ) : null}
                   {["SCHEDULED", "EN_ROUTE"].includes(v.status) ? (
-                    <Button title="Check in (with GPS)" variant="gold" icon="navigate-outline" onPress={() => step.mutate({ v, action: "check-in" })} loading={busy && step.variables?.action === "check-in"} disabled={step.isPending} />
+                    <Button title={assigned ? "Check in (with GPS)" : "Mark checked in"} variant="gold" icon="navigate-outline" onPress={() => go("check-in")} loading={busy && step.variables?.action === "check-in"} disabled={step.isPending} />
                   ) : null}
                   {v.status === "CHECKED_IN" ? (
-                    <Button title="Check out & complete" icon="checkmark-done-outline" onPress={() => step.mutate({ v, action: "check-out" })} loading={busy} disabled={step.isPending} />
+                    <Button title={assigned ? "Check out & complete (with GPS)" : "Mark completed"} icon="checkmark-done-outline" onPress={() => go("check-out")} loading={busy} disabled={step.isPending} />
                   ) : null}
                 </View>
               ) : !mine && user?.role === "PHYSIOTHERAPIST" && ["SCHEDULED", "EN_ROUTE", "CHECKED_IN"].includes(v.status) ? (

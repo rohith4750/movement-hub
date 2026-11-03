@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma, type Prisma } from "@movement-hub/database";
 import { created, handler, idParam, meta, ok, paginationQuery, paging, q } from "../../lib/http";
 import { audit } from "../../lib/audit";
-import { forbidden, unprocessable } from "../../lib/http-error";
+import { conflict, forbidden, unprocessable } from "../../lib/http-error";
 import { dayRange, todayLocal } from "../../lib/time";
 import { assertPatientAccess, authorize } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
@@ -100,6 +100,9 @@ therapySessionRouter.post(
     const s = await ownSession(req, req.params.id);
     if (s.status !== "SCHEDULED") throw unprocessable("INVALID_STATUS", `Session is ${s.status}`);
     const updated = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "TherapySession" WHERE "id" = ${s.id} FOR UPDATE`;
+      const fresh = await tx.therapySession.findUniqueOrThrow({ where: { id: s.id }, select: { status: true } });
+      if (fresh.status !== "SCHEDULED") throw conflict("ALREADY_STARTED", `Session is already ${fresh.status.toLowerCase().replace("_", " ")}`);
       const appt = await tx.appointment.findUniqueOrThrow({ where: { id: s.appointmentId } });
       if (appt.status === "SCHEDULED" || appt.status === "CONFIRMED") await transition(tx, appt.id, "CHECKED_IN", req.user!.id, "Auto check-in at session start", { checkedInAt: new Date() });
       await transition(tx, appt.id, "IN_PROGRESS", req.user!.id);
@@ -141,6 +144,11 @@ therapySessionRouter.post(
     if (s.status !== "IN_PROGRESS" && s.status !== "SCHEDULED") throw unprocessable("INVALID_STATUS", `Session is ${s.status}`);
     const { exercises, ...data } = req.body;
     const result = await prisma.$transaction(async (tx) => {
+      // Lock the session and re-check its status: a double tap or retried request waits here,
+      // then sees COMPLETED and stops, so the package is charged exactly once.
+      await tx.$queryRaw`SELECT "id" FROM "TherapySession" WHERE "id" = ${s.id} FOR UPDATE`;
+      const fresh = await tx.therapySession.findUniqueOrThrow({ where: { id: s.id }, select: { status: true } });
+      if (fresh.status !== "IN_PROGRESS" && fresh.status !== "SCHEDULED") throw conflict("ALREADY_COMPLETED", `Session is already ${fresh.status.toLowerCase()}`);
       const appt = await tx.appointment.findUniqueOrThrow({ where: { id: s.appointmentId } });
       if (appt.status === "SCHEDULED" || appt.status === "CONFIRMED") await transition(tx, appt.id, "CHECKED_IN", req.user!.id, "Auto check-in");
       await transition(tx, appt.id, "COMPLETED", req.user!.id, undefined, { completedAt: new Date() });

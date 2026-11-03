@@ -12,9 +12,15 @@ export async function lockPackage(tx: Tx, id: string) {
   return pkg;
 }
 
-/** Deduct one session when a therapy session completes. Writes to the ledger. */
+/**
+ * Deduct one session when a therapy session completes. Writes to the ledger.
+ * Never charges the same therapy session twice: checked here under the package lock, and
+ * enforced by the unique (therapySessionId, type) index on the ledger.
+ */
 export async function useSession(tx: Tx, patientPackageId: string, therapySessionId: string, performedById: string) {
   const pkg = await lockPackage(tx, patientPackageId);
+  const already = await tx.packageTransaction.findFirst({ where: { therapySessionId, type: "SESSION_USED" }, select: { id: true } });
+  if (already) throw conflict("SESSION_ALREADY_CHARGED", "This therapy session has already been deducted from a package");
   if (pkg.status !== "ACTIVE") throw unprocessable("PACKAGE_INACTIVE", `Package is ${pkg.status.toLowerCase()}`);
   if (localDateString(new Date()) > pkg.expiryDate.toISOString().slice(0, 10)) throw unprocessable("PACKAGE_EXPIRED", "Package has expired");
   if (pkg.remainingSessions <= 0) throw conflict("PACKAGE_EXHAUSTED", "No remaining sessions in this package");
