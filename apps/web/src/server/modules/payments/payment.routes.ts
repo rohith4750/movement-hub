@@ -12,6 +12,7 @@ import { dayRange } from "../../lib/time";
 import { assertPatientAccess, authorize, isPatient } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { assertBillAccess, billingScope, refreshInvoiceBalance } from "../billing/billing.service";
+import { renderReceiptHtml } from "../billing/documents";
 import { notifyPatient } from "../notifications/notification.service";
 
 export const paymentRouter = Router();
@@ -200,18 +201,24 @@ paymentRouter.get(
   authorize("ACCOUNTANT", "ADMIN", "RECEPTIONIST", "PATIENT"),
   validate({ params: idParam }),
   handler(async (req, res) => {
-    const p = await prisma.payment.findUniqueOrThrow({ where: { id: req.params.id }, include: { invoice: { include: { patient: true, branch: true } } } });
+    const p = await prisma.payment.findUniqueOrThrow({
+      where: { id: req.params.id },
+      include: {
+        refunds: { where: { status: { not: "FAILED" } }, select: { amount: true } },
+        invoice: { include: { patient: true, branch: true, therapist: { select: { user: { select: { name: true } } } } } },
+      },
+    });
     assertPatientAccess(req, p.invoice.patientId);
     assertBillAccess(req.user, p.invoice);
     if (p.status !== "SUCCESS" && p.status !== "PARTIALLY_REFUNDED") throw unprocessable("NOT_PAID", "Receipt is available after successful payment");
-    res.type("html").send(`<!doctype html><html><head><meta charset="utf-8"><title>${p.receiptNo}</title>
-<style>body{font-family:system-ui;max-width:520px;margin:24px auto;color:#0f1b4c}td{padding:6px 0}h2{border-bottom:3px solid #c9a14a;padding-bottom:8px}</style></head><body>
-<h2>${p.invoice.branch.name} — Payment Receipt</h2><table>
-<tr><td>Receipt No</td><td><b>${p.receiptNo}</b></td></tr><tr><td>Invoice</td><td>${p.invoice.invoiceNo}</td></tr>
-<tr><td>Patient</td><td>${p.invoice.patient.firstName} ${p.invoice.patient.lastName ?? ""} (${p.invoice.patient.patientCode})</td></tr>
-<tr><td>Amount</td><td><b>₹${Number(p.amount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</b></td></tr>
-<tr><td>Method</td><td>${p.method}${p.referenceNo ? ` (${p.referenceNo})` : ""}</td></tr><tr><td>Date</td><td>${p.paidAt?.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</td></tr>
-</table><button onclick="print()">Print</button></body></html>`);
+    const receiver = p.receivedById ? await prisma.user.findUnique({ where: { id: p.receivedById }, select: { name: true } }) : null;
+    res.type("html").send(
+      renderReceiptHtml({
+        ...p,
+        receivedBy: receiver?.name ?? (p.method === "RAZORPAY" ? "Online (Razorpay)" : null),
+        refunded: p.refunds.reduce((s, r) => s + Number(r.amount), 0),
+      }),
+    );
   }),
 );
 

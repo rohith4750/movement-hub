@@ -20,8 +20,23 @@ interface Settings {
   cancellationHours: number;
   reminderHoursBefore: number;
   invoicePrefix: string;
-  branch: { name: string; gstin: string | null };
+  branchId: string;
+  branch: Clinic;
 }
+/** The clinic's details printed on every invoice and receipt. */
+interface Clinic {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  pincode: string;
+  phone: string | null;
+  email: string | null;
+  gstin: string | null;
+}
+type ClinicForm = Record<"name" | "address" | "city" | "state" | "pincode" | "phone" | "email" | "gstin", string>;
+const toClinicForm = (b: Clinic): ClinicForm => ({ name: b.name, address: b.address, city: b.city, state: b.state, pincode: b.pincode, phone: b.phone ?? "", email: b.email ?? "", gstin: b.gstin ?? "" });
 type Form = Record<"consultationFee" | "therapySessionFee" | "homeVisitFee" | "travelChargePerKm" | "gstPercent" | "defaultSlotMinutes" | "openingTime" | "closingTime" | "cancellationHours" | "reminderHoursBefore" | "invoicePrefix", string>;
 
 const TIMES: Option[] = Array.from({ length: 24 * 4 }, (_, i) => {
@@ -103,10 +118,7 @@ function SettingsForm() {
         <ErrorBox error={q.error} onRetry={() => q.refetch()} />
       ) : f && q.data ? (
         <>
-          <Card>
-            <Text weight="bold" style={{ fontSize: 16 }}>{q.data.branch.name}</Text>
-            {q.data.branch.gstin ? <Muted>GSTIN {q.data.branch.gstin}</Muted> : null}
-          </Card>
+          <ClinicDetails clinic={q.data.branch} />
 
           <SectionTitle>Fees (₹)</SectionTitle>
           <Card style={{ gap: space.md }}>
@@ -150,5 +162,69 @@ function SettingsForm() {
         </>
       ) : null}
     </Screen>
+  );
+}
+
+/** Name, address, phone, email and GSTIN shown in the header of every invoice and receipt. */
+function ClinicDetails({ clinic }: { clinic: Clinic }) {
+  const [draft, setDraft] = useState<ClinicForm | null>(null);
+  const f = draft ?? toClinicForm(clinic);
+  const set = (k: keyof ClinicForm, v: string) => setDraft({ ...f, [k]: v });
+  // The form and branch id are passed in (not read from props here) — see the note on `save` above.
+  const save = useAction(
+    (v: { id: string; form: ClinicForm }) =>
+      api.patch(`/branches/${v.id}`, {
+        name: v.form.name.trim(),
+        address: v.form.address.trim(),
+        city: v.form.city.trim(),
+        state: v.form.state.trim(),
+        pincode: v.form.pincode.trim(),
+        phone: v.form.phone.trim() || undefined,
+        email: v.form.email.trim() || undefined,
+        gstin: v.form.gstin.trim().toUpperCase() || undefined,
+      }),
+    { refresh: ["settings"], onSuccess: () => setDraft(null) },
+  );
+  const problem =
+    f.name.trim().length < 2
+      ? "Enter the clinic name"
+      : !f.address.trim() || !f.city.trim() || !f.state.trim()
+        ? "Enter the address, city and state"
+        : !/^\d{6}$/.test(f.pincode.trim())
+          ? "Pincode must be 6 digits"
+          : f.email.trim() && !/^\S+@\S+\.\S+$/.test(f.email.trim())
+            ? "Enter a valid email"
+            : f.gstin.trim() && !/^[0-9A-Z]{15}$/i.test(f.gstin.trim())
+              ? "GSTIN is 15 letters/digits"
+              : null;
+
+  return (
+    <>
+      <SectionTitle>Clinic details on bills</SectionTitle>
+      <Card style={{ gap: space.md }}>
+        <Muted style={{ fontSize: 12 }}>Printed with the Movement Hub logo at the top of every invoice and receipt.</Muted>
+        <Field label="Clinic name"><Input value={f.name} onChangeText={(t) => set("name", t)} /></Field>
+        <Field label="Address"><Input value={f.address} onChangeText={(t) => set("address", t)} placeholder="e.g. Plot 12, Road No. 3, Manikonda" multiline /></Field>
+        <Row gap={space.sm} style={{ alignItems: "flex-start" }}>
+          <View style={{ flex: 1 }}><Field label="City"><Input value={f.city} onChangeText={(t) => set("city", t)} /></Field></View>
+          <View style={{ flex: 1 }}><Field label="State"><Input value={f.state} onChangeText={(t) => set("state", t)} /></Field></View>
+        </Row>
+        <Row gap={space.sm} style={{ alignItems: "flex-start" }}>
+          <View style={{ flex: 1 }}><Field label="Pincode"><Input value={f.pincode} onChangeText={(t) => set("pincode", t.replace(/\D/g, "").slice(0, 6))} keyboardType="number-pad" /></Field></View>
+          <View style={{ flex: 1 }}><Field label="Phone"><Input value={f.phone} onChangeText={(t) => set("phone", t)} keyboardType="phone-pad" /></Field></View>
+        </Row>
+        <Field label="Email"><Input value={f.email} onChangeText={(t) => set("email", t)} keyboardType="email-address" autoCapitalize="none" /></Field>
+        <Field label="GSTIN (optional)"><Input value={f.gstin} onChangeText={(t) => set("gstin", t.toUpperCase())} autoCapitalize="characters" maxLength={15} /></Field>
+        <ErrorBox error={save.error} />
+        {problem && draft ? <Muted style={{ fontSize: 12, color: colors.warning }}>{problem}</Muted> : null}
+        {save.isSuccess && !draft ? <Text style={{ color: colors.success, fontSize: 13 }}>✓ Clinic details saved</Text> : null}
+        {draft ? (
+          <Row>
+            <Button title="Discard" variant="ghost" onPress={() => setDraft(null)} style={{ flex: 1 }} />
+            <Button title="Save clinic details" icon="save-outline" onPress={() => save.mutate({ id: clinic.id, form: f })} disabled={!!problem} loading={save.isPending} style={{ flex: 1 }} />
+          </Row>
+        ) : null}
+      </Card>
+    </>
   );
 }
