@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Switch } from "react-native";
@@ -6,6 +6,8 @@ import { DobAgeFields, goBack, RegularPhysioField, RequireRole, SectionTitle } f
 import { Button, Card, Chips, ErrorBox, Field, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fullName } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import type { PatientDetail } from "@/lib/types";
 import { colors, space } from "@/theme";
 
@@ -21,7 +23,8 @@ export default function EditPatient() {
 
 function EditPatientLoader() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const q = useQuery({ queryKey: ["patient", id], queryFn: () => api.get<PatientDetail & { consentGiven?: boolean; occupation?: string | null }>(`/patients/${id}`), enabled: !!id });
+  // Same cache entry as usePatient(); kept inline because this screen also reads consentGiven/occupation.
+  const q = useQuery({ queryKey: qk.patient(id), queryFn: () => api.get<PatientDetail & { consentGiven?: boolean; occupation?: string | null }>(`/patients/${id}`), enabled: !!id });
   if (q.data) return <EditPatientForm patient={q.data} />;
   return (
     <Screen edges={["top", "bottom"]}>
@@ -33,7 +36,6 @@ function EditPatientLoader() {
 
 /** Mounted only after the patient loads, so the form starts from the saved values. */
 function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?: boolean; occupation?: string | null } }) {
-  const qc = useQueryClient();
   const [f, setF] = useState({
     firstName: patient.firstName,
     lastName: patient.lastName ?? "",
@@ -60,8 +62,8 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
           ? "Emergency phone looks invalid"
           : null;
 
-  const save = useMutation({
-    mutationFn: () =>
+  const save = useAction(
+    () =>
       api.patch(`/patients/${patient.id}`, {
         firstName: f.firstName.trim(),
         lastName: f.lastName.trim() || undefined,
@@ -76,12 +78,8 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
         emergencyPhone: f.emergencyPhone.trim() || undefined,
         consentGiven: consent,
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["patients"] });
-      qc.invalidateQueries({ queryKey: ["patient", patient.id] });
-      goBack({ pathname: "/patient/[id]", params: { id: patient.id } });
-    },
-  });
+    { refresh: ["patients"], onSuccess: () => goBack({ pathname: "/patient/[id]", params: { id: patient.id } }) },
+  );
 
   return (
     <Screen edges={["top", "bottom"]}>

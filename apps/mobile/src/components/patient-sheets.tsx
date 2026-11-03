@@ -1,5 +1,5 @@
 /** Patient-profile building blocks: medical-history and sell-package sheets, pain-progress card. */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Switch, View } from "react-native";
@@ -7,18 +7,19 @@ import { DateField, Sheet, StatTile } from "@/components/form";
 import { Button, Card, ErrorBox, Field, H2, Input, Loading, Muted, ProgressBar, Row, Text } from "@/components/ui";
 import { api } from "@/lib/api";
 import { inr, today } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import { colors, radius, space } from "@/theme";
 
 /* ───────────── Medical history ───────────── */
 
 export function MedicalHistorySheet({ patientId, open, onClose }: { patientId: string; open: boolean; onClose: () => void }) {
-  const qc = useQueryClient();
   const [f, setF] = useState({ condition: "", details: "", diagnosedOn: "", medications: "", surgeries: "", allergies: "" });
   const [ongoing, setOngoing] = useState(true);
   const set = (k: keyof typeof f) => (t: string) => setF((x) => ({ ...x, [k]: t }));
 
-  const save = useMutation({
-    mutationFn: () =>
+  const save = useAction(
+    () =>
       api.post(`/patients/${patientId}/medical-history`, {
         condition: f.condition.trim(),
         details: f.details.trim() || undefined,
@@ -28,13 +29,15 @@ export function MedicalHistorySheet({ patientId, open, onClose }: { patientId: s
         allergies: f.allergies.trim() || undefined,
         isOngoing: ongoing,
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["patient", patientId] });
-      setF({ condition: "", details: "", diagnosedOn: "", medications: "", surgeries: "", allergies: "" });
-      setOngoing(true);
-      onClose();
+    {
+      refresh: ["patients"],
+      onSuccess: () => {
+        setF({ condition: "", details: "", diagnosedOn: "", medications: "", surgeries: "", allergies: "" });
+        setOngoing(true);
+        onClose();
+      },
     },
-  });
+  );
 
   const ok = f.condition.trim().length >= 2;
 
@@ -74,33 +77,32 @@ interface PackageDef {
 }
 
 export function SellPackageSheet({ patientId, open, onClose }: { patientId: string; open: boolean; onClose: () => void }) {
-  const qc = useQueryClient();
-  const pkgs = useQuery({ queryKey: ["packages"], queryFn: () => api.get<PackageDef[]>("/packages"), enabled: open });
+  const pkgs = useQuery({ queryKey: qk.packages("active"), queryFn: () => api.get<PackageDef[]>("/packages"), enabled: open });
   const [packageId, setPackageId] = useState("");
   const [discount, setDiscount] = useState("");
   const [reason, setReason] = useState("");
   const chosen = pkgs.data?.find((p) => p.id === packageId);
   const discountNum = discount ? Number(discount) : 0;
 
-  const sell = useMutation({
-    mutationFn: () =>
+  const sell = useAction(
+    () =>
       api.post<{ invoice: { id: string } }>("/patient-packages", {
         patientId,
         packageId,
         discountAmount: discountNum,
         discountReason: reason.trim() || undefined,
       }),
-    onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ["patient", patientId] });
-      qc.invalidateQueries({ queryKey: ["patient-packages"] });
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      onClose();
-      setPackageId("");
-      setDiscount("");
-      setReason("");
-      router.push({ pathname: "/invoice/[id]", params: { id: r.invoice.id } });
+    {
+      refresh: ["packages", "billing"],
+      onSuccess: (r) => {
+        onClose();
+        setPackageId("");
+        setDiscount("");
+        setReason("");
+        router.push({ pathname: "/invoice/[id]", params: { id: r.invoice.id } });
+      },
     },
-  });
+  );
 
   const problem = !packageId
     ? "Choose a package"
@@ -163,7 +165,7 @@ interface Progress {
 }
 
 export function PainProgressCard({ patientId }: { patientId: string }) {
-  const q = useQuery({ queryKey: ["progress", patientId], queryFn: () => api.get<Progress>(`/patients/${patientId}/progress`) });
+  const q = useQuery({ queryKey: qk.patientProgress(patientId), queryFn: () => api.get<Progress>(`/patients/${patientId}/progress`) });
   const p = q.data;
   return (
     <Card>

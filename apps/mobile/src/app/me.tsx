@@ -1,4 +1,3 @@
-import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { View } from "react-native";
 import { PinInput, PIN_LENGTH } from "@/components/pin-input";
@@ -8,7 +7,9 @@ import { useAuth, type Session } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
 import { label } from "@/lib/format";
 import { useMe } from "@/lib/queries";
-import { goBack } from "@/components/form";
+import { useAction } from "@/lib/refresh";
+import { goBack, ListRow } from "@/components/form";
+import { router } from "expo-router";
 import { colors, space } from "@/theme";
 
 /** Same weak-PIN rule as the API, for instant feedback. */
@@ -33,10 +34,10 @@ export default function Profile() {
   const [again, setAgain] = useState("");
   const [done, setDone] = useState(false);
 
-  const change = useMutation({
-    mutationFn: () => api.post<Session>("/auth/pin/change", { currentPin: current, newPin: next }),
-    onSuccess: async (session) => {
-      await signIn(session); // other devices are signed out; this one keeps a fresh session
+  // Nothing cached depends on the PIN, so no refresh group: just keep this device's fresh session.
+  const change = useAction(() => api.post<Session>("/auth/pin/change", { currentPin: current, newPin: next }), {
+    onSuccess: (session) => {
+      void signIn(session); // other devices are signed out; this one keeps a fresh session
       setChanging(false);
       setCurrent("");
       setNext("");
@@ -78,6 +79,15 @@ export default function Profile() {
         </Card>
       ) : null}
 
+      {me.data?.therapist ? (
+        <ListRow
+          icon="calendar-number-outline"
+          title="My schedule & leave"
+          subtitle="Working hours, request time off"
+          onPress={() => router.push({ pathname: "/therapist/[id]", params: { id: me.data!.therapist!.id } })}
+        />
+      ) : null}
+
       <Card style={{ gap: space.md }}>
         <Row style={{ justifyContent: "space-between" }}>
           <H2>App PIN</H2>
@@ -109,7 +119,7 @@ export default function Profile() {
             </Row>
           </View>
         ) : (
-          <Muted style={{ fontSize: 12 }}>Forgot your PIN? Your admin can reset it from the web portal.</Muted>
+          <Muted style={{ fontSize: 12 }}>Forgot your PIN? An admin can reset it in More → Staff.</Muted>
         )}
       </Card>
 

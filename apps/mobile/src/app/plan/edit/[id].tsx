@@ -5,6 +5,7 @@ import { PlanEditor } from "@/components/plan-editor";
 import { Card, ErrorBox, Loading, Muted, Screen, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fullName } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
 import type { TreatmentPlan } from "@/lib/types";
 
 type Detail = TreatmentPlan & { patient: { id: string; patientCode: string; firstName: string; lastName: string | null } };
@@ -19,7 +20,7 @@ export default function EditPlanScreen() {
 
 function EditPlan() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const q = useQuery({ queryKey: ["plan", id], queryFn: () => api.get<Detail>(`/treatment-plans/${id}`), enabled: !!id });
+  const q = useQuery({ queryKey: qk.plan(id), queryFn: () => api.get<Detail>(`/treatment-plans/${id}`), enabled: !!id });
   const p = q.data;
   const closed = p && !["DRAFT", "ACTIVE"].includes(p.status);
 

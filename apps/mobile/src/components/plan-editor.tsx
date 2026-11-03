@@ -2,7 +2,6 @@
  * Create or edit a treatment plan (title, diagnosis, goals, numbers, instructions, treating physio,
  * prescribed treatments). Editing syncs treatments: removed → deleted, changed → updated, new → added.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Switch, View } from "react-native";
 import { emptyItem, emptyPlan, planBody, PlanFields, PlanItemsEditor, planProblem, toApiItems, type PlanDraft, type PlanItemDraft } from "@/components/clinical-plan-form";
@@ -10,14 +9,16 @@ import { SelectField } from "@/components/form";
 import { Button, Card, ErrorBox, Muted, Row, Text } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { Therapist, TreatmentPlan } from "@/lib/types";
+import { PlanReplaceCancelled, withActivePlanCheck } from "@/lib/plan-activation";
+import { useTherapists } from "@/lib/queries";
+import { useAction } from "@/lib/refresh";
+import type { TreatmentPlan } from "@/lib/types";
 import { colors, space } from "@/theme";
 
 export function PlanEditor({ plan, patientId, onSaved }: { plan?: TreatmentPlan; patientId?: string; onSaved: (planId: string) => void }) {
-  const qc = useQueryClient();
   const user = useAuth((s) => s.user);
   const editing = !!plan;
-  const therapists = useQuery({ queryKey: ["therapists", false], queryFn: () => api.get<Therapist[]>("/therapists") });
+  const therapists = useTherapists();
 
   const [draft, setDraft] = useState<PlanDraft>(() =>
     plan
@@ -40,11 +41,14 @@ export function PlanEditor({ plan, patientId, onSaved }: { plan?: TreatmentPlan;
   const [therapistId, setTherapistId] = useState(plan?.therapist.id ?? user?.therapistId ?? "");
   const [activate, setActivate] = useState(true);
 
-  const save = useMutation({
-    mutationFn: async () => {
+  const save = useAction(
+    async () => {
       const body = planBody(draft, items);
       if (!editing) {
-        const created = await api.post<{ id: string }>("/treatment-plans", { ...body, patientId, therapistId, activate });
+        // Starting it now while the patient has another active plan asks to replace that one.
+        const created = activate
+          ? await withActivePlanCheck((replaceActive) => api.post<{ id: string }>("/treatment-plans", { ...body, patientId, therapistId, activate, replaceActive }))
+          : await api.post<{ id: string }>("/treatment-plans", { ...body, patientId, therapistId, activate });
         return created.id;
       }
       const { items: _ignored, ...fields } = body;
@@ -60,13 +64,8 @@ export function PlanEditor({ plan, patientId, onSaved }: { plan?: TreatmentPlan;
       }
       return plan.id;
     },
-    onSuccess: (id) => {
-      qc.invalidateQueries({ queryKey: ["plans"] });
-      qc.invalidateQueries({ queryKey: ["plan", id] });
-      qc.invalidateQueries({ queryKey: ["patient"] });
-      onSaved(id);
-    },
-  });
+    { refresh: ["clinical"], onSuccess: (id) => onSaved(id) },
+  );
 
   const problem = !editing && !patientId ? "Choose the patient" : planProblem(draft, items) ?? (!therapistId ? "Choose the treating physiotherapist" : null);
 
@@ -96,7 +95,7 @@ export function PlanEditor({ plan, patientId, onSaved }: { plan?: TreatmentPlan;
           </Row>
         </Card>
       ) : null}
-      <ErrorBox error={save.error} />
+      <ErrorBox error={save.error instanceof PlanReplaceCancelled ? null : save.error} />
       {problem ? <Muted style={{ fontSize: 12, color: colors.warning }}>{problem}</Muted> : null}
       <Button title={editing ? "Save changes" : activate ? "Create & activate plan" : "Save draft plan"} icon="checkmark-circle-outline" onPress={() => save.mutate()} disabled={!!problem} loading={save.isPending} />
     </View>

@@ -3,14 +3,15 @@
  * pain scale, treatment-item editor, and the quick "create treatment plan" form.
  */
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { SelectField } from "@/components/form";
 import { Button, Caption, ErrorBox, Field, Input, Muted, Row, Text } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { Therapist } from "@/lib/types";
+import { PlanReplaceCancelled, withActivePlanCheck } from "@/lib/plan-activation";
+import { useTherapists } from "@/lib/queries";
+import { useAction } from "@/lib/refresh";
 import { colors, radius, space } from "@/theme";
 
 export const PLAN_CATEGORIES = ["Exercise Therapy", "Manual Therapy", "Electrotherapy", "Taping", "Dry Needling", "Hot/Cold Therapy", "Traction", "Education"];
@@ -149,22 +150,20 @@ export const planBody = (plan: PlanDraft, items: PlanItemDraft[]) => ({
  * Physiotherapists own the plans they write; admins choose the treating physiotherapist.
  */
 export function QuickPlanForm({ patientId, onCreated, onCancel }: { patientId: string; onCreated: (planId: string) => void; onCancel: () => void }) {
-  const qc = useQueryClient();
   const user = useAuth((s) => s.user);
   const isPhysio = user?.role === "PHYSIOTHERAPIST";
-  const therapists = useQuery({ queryKey: ["therapists", false], queryFn: () => api.get<Therapist[]>("/therapists"), enabled: !isPhysio });
+  const therapists = useTherapists({ enabled: !isPhysio });
   const [plan, setPlan] = useState<PlanDraft>(emptyPlan);
   const [items, setItems] = useState<PlanItemDraft[]>(() => [emptyItem()]);
   const [therapistId, setTherapistId] = useState("");
 
-  const save = useMutation({
-    mutationFn: () => api.post<{ id: string }>("/treatment-plans", { ...planBody(plan, items), patientId, therapistId: isPhysio ? undefined : therapistId, activate: true }),
-    onSuccess: (p) => {
-      qc.invalidateQueries({ queryKey: ["plans"] });
-      qc.invalidateQueries({ queryKey: ["patient", patientId] });
-      onCreated(p.id);
-    },
-  });
+  const save = useAction(
+    () =>
+      withActivePlanCheck((replaceActive) =>
+        api.post<{ id: string }>("/treatment-plans", { ...planBody(plan, items), patientId, therapistId: isPhysio ? undefined : therapistId, activate: true, replaceActive }),
+      ),
+    { refresh: ["clinical"], onSuccess: (p) => onCreated(p.id) },
+  );
 
   const problem = planProblem(plan, items) ?? (!isPhysio && !therapistId ? "Choose the treating physiotherapist" : null);
 
@@ -181,7 +180,7 @@ export function QuickPlanForm({ patientId, onCreated, onCancel }: { patientId: s
         />
       ) : null}
       <PlanItemsEditor items={items} onChange={setItems} />
-      <ErrorBox error={save.error} />
+      <ErrorBox error={save.error instanceof PlanReplaceCancelled ? null : save.error} />
       {problem ? <Muted style={{ fontSize: 12, color: colors.warning }}>{problem}</Muted> : null}
       <Row>
         <Button title="Cancel" variant="ghost" onPress={onCancel} style={{ flex: 1 }} />

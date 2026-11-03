@@ -1,14 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { QuickPlanForm } from "@/components/clinical-plan-form";
 import { DobAgeFields, RegularPhysioField, useOwnTherapistId } from "@/components/form";
-import { Button, Card, Chips, Empty, ErrorBox, Field, H2, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
-import { api } from "@/lib/api";
+import { CategoryBadge, VisitLine } from "@/components/patient-visits";
+import { slotStyles, SlotLegend } from "@/components/slot-legend";
+import { Badge, Button, Card, Chips, Empty, ErrorBox, Field, H2, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
+import { api, ApiError } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
-import { ageFrom, date, dayParts, fullName, label, time, today } from "@/lib/format";
-import type { Appointment, AppointmentType, AvailabilityRow, PatientDetail, PatientListItem, PatientPackage, Therapist, TreatmentPlan } from "@/lib/types";
+import { ageFrom, clinicDay, clinicHour, date, dayParts, fullName, hhmm, label, time, today } from "@/lib/format";
+import { useActivePlans, useAppointment, usePatient, useTherapists } from "@/lib/queries";
+import { qk } from "@/lib/query-keys";
+import { refresh, useAction } from "@/lib/refresh";
+import type { AppointmentType, AvailabilityRow, PatientListItem, PatientPackage } from "@/lib/types";
 import { colors, radius, space } from "@/theme";
 
 const TYPES: { value: AppointmentType; label: string; hint: string }[] = [
@@ -18,7 +23,6 @@ const TYPES: { value: AppointmentType; label: string; hint: string }[] = [
   { value: "HOME_VISIT", label: "Home visit", hint: "Treatment at the patient's address" },
 ];
 const DAYS = 14;
-const clinicHour = (iso: string) => new Date(new Date(iso).getTime() + 330 * 60_000).getUTCHours();
 const PERIODS = [
   { key: "Morning", test: (h: number) => h < 12 },
   { key: "Afternoon", test: (h: number) => h >= 12 && h < 17 },
@@ -37,10 +41,7 @@ const WEEKDAYS: { value: Weekday; label: string }[] = [
 ];
 const DAY_CODES: Weekday[] = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 /** Clinic (IST) date and HH:mm for a slot start. */
-const clinicParts = (iso: string) => {
-  const local = new Date(new Date(iso).getTime() + 330 * 60_000).toISOString();
-  return { date: local.slice(0, 10), time: local.slice(11, 16) };
-};
+const clinicParts = (iso: string) => ({ date: clinicDay(iso), time: hhmm(iso) });
 const dayCode = (d: string) => DAY_CODES[new Date(`${d}T12:00:00Z`).getUTCDay()];
 
 type Preview = { items: { date: string; startAt: string; slotId: string | null; ok: boolean; reason: string | null }[]; available: number; packageRemaining: number | null };
@@ -52,16 +53,19 @@ const STEP_LABEL: Record<Step, string> = { patient: "Patient", visit: "Visit", d
  * Staff booking as a step-by-step flow: Patient → Visit → Details (only when the visit type needs it)
  * → Date & time → Confirm. Every step moves forward on its own once its choice is made, and anything
  * missing (new patient, treatment plan, home address) can be added right here — no dead ends.
- * Opened with ?patientId=… from a patient, or ?reschedule=<appointmentId> to move a visit.
+ * Opened with ?patientId=… from a patient, ?reschedule=<appointmentId> to move a visit, or
+ * ?walkIn=1 for a patient who is at the clinic now (today only, checked in as it's booked).
  */
 export default function Book() {
   const qc = useQueryClient();
   const user = useAuth((s) => s.user);
-  const params = useLocalSearchParams<{ reschedule?: string; patientId?: string; type?: string }>();
+  const params = useLocalSearchParams<{ reschedule?: string; patientId?: string; type?: string; walkIn?: string }>();
   const rescheduleId = typeof params.reschedule === "string" ? params.reschedule : undefined;
   const fixedPatient = typeof params.patientId === "string" ? params.patientId : undefined;
+  const [walkInChoice, setWalkIn] = useState(params.walkIn === "1");
+  const [slotGone, setSlotGone] = useState<string | null>(null);
 
-  const original = useQuery({ queryKey: ["appointment", rescheduleId], queryFn: () => api.get<Appointment>(`/appointments/${rescheduleId}`), enabled: !!rescheduleId });
+  const original = useAppointment(rescheduleId);
 
   const [search, setSearch] = useState("");
   const [patientChoice, setPatientChoice] = useState<string | null>(null);
@@ -87,19 +91,27 @@ export default function Book() {
   const isConsult = type === "INITIAL_CONSULTATION";
   const needsPlan = type === "THERAPY_SESSION";
   const usesPackage = type === "THERAPY_SESSION" || type === "HOME_VISIT";
+  // Home visits are always planned ahead; a reschedule keeps the original's source.
+  const walkIn = walkInChoice && !rescheduleId && type !== "HOME_VISIT";
 
   const patients = useQuery({
-    queryKey: ["patients", "book", search],
+    queryKey: qk.patients.list("book", { search: search.trim() }),
     queryFn: () => api.page<PatientListItem>("/patients", { search: search.trim() || undefined, limit: 8 }),
     enabled: !patientId && !rescheduleId,
+    placeholderData: keepPreviousData,
   });
-  const patient = useQuery({ queryKey: ["patient", patientId], queryFn: () => api.get<PatientDetail>(`/patients/${patientId}`), enabled: !!patientId });
-  const plans = useQuery({ queryKey: ["plans", patientId, "active"], queryFn: () => api.page<TreatmentPlan>("/treatment-plans", { patientId, status: "ACTIVE" }), enabled: !!patientId && !rescheduleId });
-  const pkgs = useQuery({ queryKey: ["patient-packages", patientId, "active"], queryFn: () => api.page<PatientPackage>("/patient-packages", { patientId, status: "ACTIVE" }), enabled: !!patientId && !rescheduleId });
-  const therapists = useQuery({ queryKey: ["therapists", type === "HOME_VISIT"], queryFn: () => api.get<Therapist[]>("/therapists", { homeVisit: type === "HOME_VISIT" || undefined }) });
+  const patient = usePatient(patientId || undefined);
+  const plans = useActivePlans(!rescheduleId && patientId ? patientId : undefined);
+  const pkgs = useQuery({
+    queryKey: qk.patientPackages.activeFor(patientId),
+    queryFn: () => api.page<PatientPackage>("/patient-packages", { patientId, status: "ACTIVE" }),
+    select: (r) => r.data,
+    enabled: !!patientId && !rescheduleId,
+  });
+  const therapists = useTherapists({ homeVisit: type === "HOME_VISIT" });
 
-  const planList = useMemo(() => plans.data?.data ?? [], [plans.data]);
-  const pkgList = useMemo(() => pkgs.data?.data ?? [], [pkgs.data]);
+  const planList = useMemo(() => plans.data ?? [], [plans.data]);
+  const pkgList = useMemo(() => pkgs.data ?? [], [pkgs.data]);
   const addresses = useMemo(() => patient.data?.addresses ?? [], [patient.data]);
   const planId = isConsult ? "" : planChoice ?? (planList.length === 1 ? planList[0].id : "");
   const plan = planList.find((p) => p.id === planId);
@@ -111,15 +123,18 @@ export default function Book() {
   const therapistId = !wanted || (therapists.data ?? []).some((t) => t.id === wanted) ? wanted : "";
 
   const summary = useQuery({
-    queryKey: ["availability-summary", type, therapistId],
+    queryKey: qk.availabilitySummary({ type, therapistId }),
     queryFn: () => api.get<{ date: string; free: number }[]>("/availability/summary", { from: today(), days: DAYS, type, therapistId: therapistId || undefined }),
+    enabled: !walkIn,
   });
-  // Start on the first day that has free times, not on a full "today".
+  // Start on the first day that has free times, not on a full "today". A walk-in is always today.
   const firstFree = summary.data?.find((d) => d.free > 0)?.date;
-  const day = dayChoice ?? firstFree ?? today();
+  const day = walkIn ? today() : dayChoice ?? firstFree ?? today();
   const avail = useQuery({
-    queryKey: ["availability", day, type, therapistId],
-    queryFn: () => api.get<AvailabilityRow[]>("/availability", { date: day, type, therapistId: therapistId || undefined }),
+    queryKey: qk.availability({ day, type, therapistId, walkIn }),
+    queryFn: () => api.get<AvailabilityRow[]>("/availability", { date: day, type, therapistId: therapistId || undefined, walkIn: walkIn ? "true" : undefined }),
+    // Times fill up while the front desk is choosing: keep this list current.
+    refetchInterval: 60_000,
   });
   const freeCount = (avail.data ?? []).reduce((n, t) => n + t.slots.length, 0);
 
@@ -152,14 +167,14 @@ export default function Book() {
 
   /* ─────────── Repeat weekly (therapy sessions) ─────────── */
 
-  const canRepeat = !rescheduleId && type === "THERAPY_SESSION" && !!planId;
+  const canRepeat = !rescheduleId && !walkIn && type === "THERAPY_SESSION" && !!planId;
   const repeating = canRepeat && repeat && !!slot;
   const slotParts = slot ? clinicParts(slot.startAt) : null;
   const days: Weekday[] = repeatDays ?? (slotParts ? [dayCode(slotParts.date)] : []);
   const defaultWeeks = plan ? Math.min(12, Math.max(1, Math.ceil(plan.prescribedSessions / Math.max(1, plan.frequencyPerWeek)))) : 4;
   const weeks = weeksChoice ?? defaultWeeks;
   const preview = useQuery({
-    queryKey: ["recurring-preview", patientId, slot?.therapistId, slotParts?.time, slotParts?.date, days.join(","), weeks, packageId],
+    queryKey: qk.recurringPreview({ patientId, therapistId: slot?.therapistId, time: slotParts?.time, date: slotParts?.date, days: days.join(","), weeks, packageId }),
     queryFn: () =>
       api.post<Preview>("/appointments/recurring/preview", {
         patientId,
@@ -175,8 +190,8 @@ export default function Book() {
   const repeatSlotIds = (preview.data?.items ?? []).filter((i) => i.ok && i.slotId).map((i) => i.slotId!);
   const toggleDay = (d: Weekday) => setRepeatDays(days.includes(d) ? days.filter((x) => x !== d) : [...days, d]);
 
-  const book = useMutation({
-    mutationFn: async (): Promise<string> => {
+  const book = useAction(
+    async (): Promise<string> => {
       if (!slot) throw new Error("Choose a time");
       if (rescheduleId) return (await api.post<{ id: string }>(`/appointments/${rescheduleId}/reschedule`, { newSlotId: slot.id })).id;
       if (repeating) {
@@ -192,16 +207,22 @@ export default function Book() {
       }
       const base = { patientId, slotId: slot.id, treatmentPlanId: planId || undefined, patientPackageId: packageId || undefined, notes: notes.trim() || undefined };
       if (type === "HOME_VISIT") return (await api.post<{ appointmentId: string }>("/home-visits", { ...base, addressId })).appointmentId;
-      return (await api.post<{ id: string }>("/appointments", { ...base, type })).id;
+      return (await api.post<{ id: string }>("/appointments", { ...base, type, source: walkIn ? "WALK_IN" : "SCHEDULED" })).id;
     },
-    onSuccess: (id) => {
-      qc.invalidateQueries({ queryKey: ["appointments"] });
-      qc.invalidateQueries({ queryKey: ["availability"] });
-      qc.invalidateQueries({ queryKey: ["availability-summary"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-      router.replace({ pathname: "/appointment/[id]", params: { id } });
+    {
+      refresh: ["appointments"],
+      onSuccess: (id) => router.replace({ pathname: "/appointment/[id]", params: { id } }),
+      // Someone else took the time while we were confirming: show fresh times and go back a step.
+      onError: (e) => {
+        if (e instanceof ApiError && (e.code === "SLOT_UNAVAILABLE" || e.code === "SLOT_IN_PAST")) {
+          setSlotGone(slot ? `${time(slot.startAt)} with ${slot.therapist} was just taken. Please pick another time.` : e.message);
+          setSlot(null);
+          void refresh(qc, "appointments");
+          setStep("time");
+        }
+      },
     },
-  });
+  );
 
   if (!hasRole(user, "ADMIN", "RECEPTIONIST")) {
     return (
@@ -246,6 +267,7 @@ export default function Book() {
             {patient.data.patientCode}
             {step !== "visit" && typePicked ? ` · ${label(type)}` : ""}
             {plan && step !== "details" ? ` · ${plan.title}` : ""}
+            {walkIn && step !== "visit" ? " · Walk-in" : ""}
           </Muted>
         </Card>
       ) : null}
@@ -284,8 +306,14 @@ export default function Book() {
                     accessibilityRole="button"
                     style={styles.pick}
                   >
-                    <Text weight="semibold" style={{ flex: 1 }} numberOfLines={1}>{fullName(p)}</Text>
-                    <Muted style={{ fontSize: 12 }}>{p.patientCode}{ageFrom(p.dateOfBirth) !== null ? ` · ${ageFrom(p.dateOfBirth)} yrs` : ""}</Muted>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Row style={{ justifyContent: "space-between" }}>
+                        <Text weight="semibold" style={{ flex: 1 }} numberOfLines={1}>{fullName(p)}</Text>
+                        <CategoryBadge visits={p.visits} />
+                      </Row>
+                      <Muted style={{ fontSize: 12 }}>{p.patientCode}{ageFrom(p.dateOfBirth) !== null ? ` · ${ageFrom(p.dateOfBirth)} yrs` : ""}{p.primaryTherapist ? ` · ${p.primaryTherapist.user.name}` : ""}</Muted>
+                      <VisitLine visits={p.visits} />
+                    </View>
                   </Pressable>
                 ))
               )}
@@ -414,6 +442,21 @@ export default function Book() {
       {step === "time" ? (
         <Card>
           <H2>{rescheduleId ? "New date & time" : "Physiotherapist & time"}</H2>
+          {!rescheduleId && type !== "HOME_VISIT" ? (
+            <Chips<"ahead" | "walkin">
+              value={walkIn ? "walkin" : "ahead"}
+              onChange={(v) => {
+                setWalkIn(v === "walkin");
+                setDayChoice(null);
+                resetSlot();
+              }}
+              options={[{ value: "ahead", label: "Booked ahead" }, { value: "walkin", label: "Walk-in (here now)" }]}
+            />
+          ) : null}
+          {walkIn ? <Muted style={{ fontSize: 12 }}>Today only. The patient is checked in as soon as you book, and the slot that is running now can be used.</Muted> : null}
+          {slotGone ? (
+            <Muted style={{ fontSize: 12, color: colors.warning }}>{slotGone}</Muted>
+          ) : null}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
             <Pressable onPress={() => { setTherapistChoice(""); setDayChoice(null); resetSlot(); }} style={[styles.chip, !therapistId && styles.chipOn]}>
               <Text weight="semibold" style={{ fontSize: 13, color: !therapistId ? colors.white : colors.navy700 }}>Any physio</Text>
@@ -430,6 +473,7 @@ export default function Book() {
             })}
           </ScrollView>
 
+          {walkIn ? null : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm, paddingVertical: 2 }}>
             {summary.isLoading ? <Loading /> : null}
             {(summary.data ?? []).map(({ date: d, free }) => {
@@ -444,7 +488,9 @@ export default function Book() {
               );
             })}
           </ScrollView>
+          )}
 
+          <SlotLegend />
           {avail.isLoading ? (
             <Loading />
           ) : avail.error ? (
@@ -452,49 +498,62 @@ export default function Book() {
           ) : freeCount === 0 ? (
             <Empty
               icon="time-outline"
-              title={summary.data && !firstFree ? "No free times in the next 2 weeks" : "No free times this day"}
-              message={therapistId ? "Pick a green day or choose “Any physio”." : summary.data && !firstFree ? "Generate more slots for the physios in Therapists." : "Pick a day marked in green."}
+              title={walkIn ? "No free time left today" : summary.data && !firstFree ? "No free times in the next 2 weeks" : "No free times this day"}
+              message={walkIn ? "Every physio is booked for the rest of today. Book the patient ahead instead." : therapistId ? "Pick a green day or choose “Any physio”." : summary.data && !firstFree ? "Generate more slots for the physios in Therapists." : "Pick a day marked in green."}
             />
           ) : (
             (avail.data ?? [])
-              .filter((t) => t.slots.length)
-              .map((t) => (
-                <View key={t.therapistId} style={{ gap: space.sm, marginTop: space.xs }}>
-                  <Row gap={6}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.colorTag ?? colors.gold500 }} />
-                    <Text weight="semibold">{t.therapistName}</Text>
-                  </Row>
-                  {PERIODS.map(({ key, test }) => {
-                    const list = t.slots.filter((s) => test(clinicHour(s.startAt)));
-                    if (!list.length) return null;
-                    return (
-                      <View key={key} style={{ gap: 6 }}>
-                        <Muted style={{ fontSize: 11 }}>{key.toUpperCase()}</Muted>
-                        <View style={styles.slots}>
-                          {list.map((s) => {
-                            const on = slot?.id === s.slotId;
-                            return (
-                              <Pressable
-                                key={s.slotId}
-                                onPress={() => {
-                                  setSlot({ id: s.slotId, startAt: s.startAt, therapist: t.therapistName, therapistId: t.therapistId });
-                                  setRepeatDays(null);
-                                  setStep("confirm");
-                                }}
-                                accessibilityRole="button"
-                                accessibilityState={{ selected: on }}
-                                style={[styles.slot, on && styles.slotOn]}
-                              >
-                                <Text weight="semibold" style={{ fontSize: 13, color: on ? colors.white : colors.navy700 }}>{time(s.startAt)}</Text>
-                              </Pressable>
-                            );
-                          })}
+              .filter((t) => t.slots.length || t.taken?.length)
+              .map((t) => {
+                // Free and taken times in one grid, so the day reads like the whiteboard.
+                const cells = [
+                  ...t.slots.map((s) => ({ key: s.slotId, slotId: s.slotId as string | null, startAt: s.startAt, state: "free" as const })),
+                  ...(t.taken ?? []).map((s) => ({ key: s.startAt, slotId: null, startAt: s.startAt, state: s.status === "BOOKED" ? ("booked" as const) : ("off" as const) })),
+                ].sort((a, b) => a.startAt.localeCompare(b.startAt));
+                return (
+                  <View key={t.therapistId} style={{ gap: space.sm, marginTop: space.xs }}>
+                    <Row gap={6}>
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.colorTag ?? colors.gold500 }} />
+                      <Text weight="semibold" style={{ flex: 1 }}>{t.therapistName}</Text>
+                      {t.onLeave ? <Badge status="CANCELLED" text="On leave" /> : !t.slots.length ? <Badge status="NO_SHOW" text="Full" /> : <Muted style={{ fontSize: 12 }}>{t.slots.length} free{t.counts ? ` · ${t.counts.booked} booked` : ""}</Muted>}
+                    </Row>
+                    {PERIODS.map(({ key, test }) => {
+                      const list = cells.filter((s) => test(clinicHour(s.startAt)));
+                      if (!list.length) return null;
+                      return (
+                        <View key={key} style={{ gap: 6 }}>
+                          <Muted style={{ fontSize: 11 }}>{key.toUpperCase()}</Muted>
+                          <View style={styles.slots}>
+                            {list.map((s) => {
+                              const on = !!s.slotId && slot?.id === s.slotId;
+                              const free = s.state === "free";
+                              return (
+                                <Pressable
+                                  key={s.key}
+                                  disabled={!free}
+                                  onPress={() => {
+                                    if (!s.slotId) return;
+                                    setSlot({ id: s.slotId, startAt: s.startAt, therapist: t.therapistName, therapistId: t.therapistId });
+                                    setSlotGone(null);
+                                    setRepeatDays(null);
+                                    setStep("confirm");
+                                  }}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected: on, disabled: !free }}
+                                  accessibilityLabel={`${time(s.startAt)} ${free ? "available" : s.state === "booked" ? "booked" : "unavailable"}`}
+                                  style={[styles.slot, free ? slotStyles.free : s.state === "booked" ? slotStyles.booked : slotStyles.off, on && slotStyles.selected]}
+                                >
+                                  <Text weight="semibold" style={{ fontSize: 13, color: on ? colors.white : free ? colors.navy700 : colors.muted, textDecorationLine: free ? "none" : "line-through" }}>{time(s.startAt)}</Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
                         </View>
-                      </View>
-                    );
-                  })}
-                </View>
-              ))
+                      );
+                    })}
+                  </View>
+                );
+              })
           )}
         </Card>
       ) : null}
@@ -505,6 +564,7 @@ export default function Book() {
           <H2>Confirm</H2>
           <KeyValue k="Patient" v={patient.data ? fullName(patient.data) : original.data ? fullName(original.data.patient) : "—"} />
           <KeyValue k="Visit" v={label(type)} />
+          {!rescheduleId ? <KeyValue k="Source" v={walkIn ? "Walk-in (checked in on booking)" : "Booked ahead"} /> : null}
           {!rescheduleId && !isConsult ? <KeyValue k="Plan" v={plan?.title ?? (needsPlan ? "Required" : "None")} /> : null}
           {type === "HOME_VISIT" && !rescheduleId ? <KeyValue k="Address" v={addresses.find((a) => a.id === addressId)?.line1 ?? "—"} /> : null}
           <KeyValue k="When" v={slot ? `${date(slot.startAt)}, ${time(slot.startAt)}` : "—"} />
@@ -594,14 +654,13 @@ export default function Book() {
 type Gender = "MALE" | "FEMALE" | "OTHER";
 
 function QuickPatientForm({ onCreated, onCancel }: { onCreated: (id: string) => void; onCancel: () => void }) {
-  const qc = useQueryClient();
   const [f, setF] = useState({ firstName: "", lastName: "", phone: "", dateOfBirth: "" });
   const [gender, setGender] = useState<Gender>("FEMALE");
   const ownTherapist = useOwnTherapistId();
   const [physio, setPhysio] = useState<string | null>(null);
   const primaryTherapistId = physio ?? ownTherapist;
-  const save = useMutation({
-    mutationFn: () =>
+  const save = useAction(
+    () =>
       api.post<{ id: string }>("/patients", {
         firstName: f.firstName.trim(),
         lastName: f.lastName.trim() || undefined,
@@ -611,11 +670,8 @@ function QuickPatientForm({ onCreated, onCancel }: { onCreated: (id: string) => 
         primaryTherapistId: primaryTherapistId || null,
         consentGiven: true,
       }),
-    onSuccess: (p) => {
-      qc.invalidateQueries({ queryKey: ["patients"] });
-      onCreated(p.id);
-    },
-  });
+    { refresh: ["patients"], onSuccess: (p) => onCreated(p.id) },
+  );
   const problem = !f.firstName.trim() ? "Enter the first name" : f.phone.replace(/\D/g, "").length < 10 ? "Enter a valid mobile number" : null;
 
   return (
@@ -643,13 +699,13 @@ function QuickPatientForm({ onCreated, onCancel }: { onCreated: (id: string) => 
 function QuickAddressForm({ patientId, onCreated, onCancel }: { patientId: string; onCreated: (id: string) => void; onCancel: () => void }) {
   const qc = useQueryClient();
   const [f, setF] = useState({ line1: "", city: "", state: "", pincode: "" });
-  const save = useMutation({
-    mutationFn: () => api.post<{ id: string }>(`/patients/${patientId}/addresses`, { label: "Home", line1: f.line1.trim(), city: f.city.trim(), state: f.state.trim(), pincode: f.pincode.trim(), isDefault: true }),
-    onSuccess: async (a) => {
-      await qc.invalidateQueries({ queryKey: ["patient", patientId] });
-      onCreated(a.id);
+  const save = useAction(
+    () => api.post<{ id: string }>(`/patients/${patientId}/addresses`, { label: "Home", line1: f.line1.trim(), city: f.city.trim(), state: f.state.trim(), pincode: f.pincode.trim(), isDefault: true }),
+    {
+      // The new address must be in the patient record before it's selected, so wait for it.
+      onSuccess: (a) => void qc.invalidateQueries({ queryKey: qk.patient(patientId) }).then(() => onCreated(a.id)),
     },
-  });
+  );
   const problem = f.line1.trim().length < 2 ? "Enter the address" : !f.city.trim() ? "Enter the city" : !f.state.trim() ? "Enter the state" : !/^\d{6}$/.test(f.pincode.trim()) ? "Enter a 6-digit pincode" : null;
 
   return (

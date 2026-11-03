@@ -8,6 +8,7 @@ import { Badge, Button, Card, Chips, Empty, ErrorBox, Input, Loading, Muted, Row
 import { useHasRole } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { date, fullName } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
 import { colors, radius, space } from "@/theme";
 
 type Status = "ACTIVE" | "DRAFT" | "COMPLETED" | "CANCELLED" | "all";
@@ -43,7 +44,7 @@ function PlansList() {
   }, [search]);
 
   const q = useQuery({
-    queryKey: ["plans", "list", status, debounced],
+    queryKey: qk.plans.list({ status, search: debounced }),
     queryFn: () => api.page<PlanRow>("/treatment-plans", { status: status === "all" ? undefined : status, search: debounced || undefined, limit: 100 }),
   });
   const rows = q.data?.data ?? [];

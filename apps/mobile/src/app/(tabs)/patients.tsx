@@ -1,5 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { CategoryBadge, VisitLine } from "@/components/patient-visits";
+import { qk } from "@/lib/query-keys";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -24,8 +26,9 @@ export default function Patients() {
   }, [search]);
 
   const q = useQuery({
-    queryKey: ["patients", "mobile", debounced, mine],
+    queryKey: qk.patients.list("tab", { search: debounced, mine }),
     queryFn: () => api.page<PatientListItem>("/patients", { search: debounced || undefined, limit: 40, sort: "createdAt:desc", mine: mine ? "true" : undefined }),
+    placeholderData: keepPreviousData, // keep the list on screen while a new search loads
   });
 
   return (
@@ -69,8 +72,12 @@ export default function Patients() {
                 <Text weight="bold" style={{ color: colors.navy700 }}>{(p.firstName[0] ?? "?").toUpperCase()}</Text>
               </View>
               <View style={{ flex: 1, gap: 2 }}>
-                <Text weight="semibold" style={{ fontSize: 15 }} numberOfLines={1}>{fullName(p)}</Text>
+                <Row style={{ justifyContent: "space-between" }}>
+                  <Text weight="semibold" style={{ fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(p)}</Text>
+                  <CategoryBadge visits={p.visits} />
+                </Row>
                 <Muted style={{ fontSize: 12 }} numberOfLines={1}>{p.patientCode} · {p.phone} · {label(p.gender)}{ageFrom(p.dateOfBirth) !== null ? ` · ${ageFrom(p.dateOfBirth)} yrs` : ""}</Muted>
+                <VisitLine visits={p.visits} />
                 {p.primaryTherapist && !mine ? <Muted style={{ fontSize: 12 }} numberOfLines={1}>Physio: {p.primaryTherapist.user.name}</Muted> : null}
                 {p.treatmentPlans?.[0] ? <Muted style={{ fontSize: 12, color: colors.gold700 }} numberOfLines={1}>{p.treatmentPlans[0].title}</Muted> : null}
               </View>

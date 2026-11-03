@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Linking, Pressable, View } from "react-native";
@@ -8,27 +8,14 @@ import { Badge, Button, Card, Chips, ErrorBox, Field, H2, Input, KeyValue, Loadi
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
-import { date, fullName, label, time } from "@/lib/format";
+import { date, dateTime, fullName, label, time } from "@/lib/format";
+import { useActivePlans, useConsultation, useConsultationHistory } from "@/lib/queries";
+import { qk } from "@/lib/query-keys";
+import { forget, refresh, useAction } from "@/lib/refresh";
 import type { Appointment, AppointmentType } from "@/lib/types";
 import { colors, radius, space } from "@/theme";
 
 type Detail = Appointment & { history: { id: string; toStatus: string; fromStatus: string | null; note: string | null; createdAt: string }[] };
-
-interface Consultation {
-  id: string;
-  chiefComplaint: string | null;
-  symptoms: string | null;
-  historyOfIllness: string | null;
-  clinicalImpression: string | null;
-  recommendations: string | null;
-  assessment: { painScore: number; painLocation: string | null; observations: string | null; diagnosis?: string | null } | null;
-}
-
-interface PlanOption {
-  id: string;
-  title: string;
-  therapist: { user: { name: string } };
-}
 
 const EDIT_TYPES: { value: AppointmentType; label: string }[] = [
   { value: "INITIAL_CONSULTATION", label: "First consultation" },
@@ -42,7 +29,8 @@ export default function AppointmentDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const qc = useQueryClient();
   const user = useAuth((s) => s.user);
-  const q = useQuery({ queryKey: ["appointment", id], queryFn: () => api.get<Detail>(`/appointments/${id}`), enabled: !!id });
+  // Same key as useAppointment(): the booking and consultation screens share this cache entry.
+  const q = useQuery({ queryKey: qk.appointment(id), queryFn: () => api.get<Detail>(`/appointments/${id}`), enabled: !!id });
   const a = q.data;
 
   const isAdmin = hasRole(user, "ADMIN");
@@ -52,95 +40,77 @@ export default function AppointmentDetail() {
   const open = a ? ["SCHEDULED", "CONFIRMED"].includes(a.status) : false;
   const isConsult = a?.type === "INITIAL_CONSULTATION" || a?.type === "FOLLOW_UP_CONSULTATION";
   const hasClinical = !!a && (!!a.consultation || STARTED.includes(a.status));
-  const canDelete = isAdmin || (isFrontDesk && !!a && !hasClinical);
+  // Permanent delete is an admin correction tool; everyone else cancels, so the visit stays on record.
+  const canDelete = isAdmin;
   const canEditBooking = isFrontDesk && open && a?.type !== "HOME_VISIT" && !a?.consultation;
   const canEditNotes = isFrontDesk || isTreating;
 
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["appointments"] });
-    qc.invalidateQueries({ queryKey: ["appointment", id] });
-    qc.invalidateQueries({ queryKey: ["dashboard"] });
-    qc.invalidateQueries({ queryKey: ["sessions"] });
-    qc.invalidateQueries({ queryKey: ["calendar"] });
-  };
+  /* ── consultation notes ── */
+  const consult = useConsultation(a?.consultation && canClinical ? a.consultation.id : undefined);
+  const isDraft = consult.data?.status === "DRAFT";
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const history = useConsultationHistory(a?.consultation?.id, historyOpen);
 
   /* ── status actions ── */
-  const act = useMutation({
-    mutationFn: async (action: "confirm" | "check-in" | "no-show" | "complete") => {
+  const act = useAction(
+    async (action: "confirm" | "check-in" | "no-show" | "complete") => {
       if (action === "no-show" && !(await confirm("Mark as no-show?", "The patient did not come for this visit.", "No-show", true))) return null;
       return api.patch(`/appointments/${id}/${action}`);
     },
-    onSuccess: refresh,
-  });
+    { refresh: ["appointments"] },
+  );
 
   /* ── cancel ── */
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState("");
-  const cancel = useMutation({
-    mutationFn: () => api.post(`/appointments/${id}/cancel`, { reason: reason.trim() }),
+  const cancel = useAction(() => api.post(`/appointments/${id}/cancel`, { reason: reason.trim() }), {
+    refresh: ["appointments"],
     onSuccess: () => {
-      refresh();
       setCancelling(false);
       setReason("");
     },
   });
 
-  /* ── delete ── */
-  const remove = useMutation({
-    mutationFn: async () => {
+  /* ── delete (admins) ── */
+  const remove = useAction(
+    async () => {
       const msg = hasClinical
-        ? `This visit already happened${a?.consultation ? " and has consultation notes" : ""}. Deleting it permanently removes it${a?.consultation ? " and its notes" : ""} from ${fullName(a?.patient)}'s record. Any package session it used is given back.`
+        ? `This visit already happened${a?.consultation ? " and has consultation notes" : ""}. Deleting it permanently removes it${a?.consultation ? " and its notes" : ""} from ${fullName(a?.patient)}'s record (a copy is kept in the audit log). Any package session it used is given back.`
         : `This permanently removes the booking for ${fullName(a?.patient)} and frees the time slot. Use Cancel instead to keep a record.`;
       if (!(await confirm(`Delete ${a?.appointmentNo}?`, msg, "Delete", true))) return false;
       await api.del(`/appointments/${id}`);
       return true;
     },
-    onSuccess: (deleted) => {
-      if (!deleted) return;
-      qc.invalidateQueries({ queryKey: ["appointments"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-      qc.invalidateQueries({ queryKey: ["calendar"] });
-      qc.invalidateQueries({ queryKey: ["availability"] });
-      qc.invalidateQueries({ queryKey: ["availability-summary"] });
-      qc.removeQueries({ queryKey: ["appointment", id] });
-      goBack("/appointments");
+    {
+      onSuccess: (deleted) => {
+        if (!deleted) return;
+        forget(qc, qk.appointment(id)); // gone: don't refetch it
+        void refresh(qc, "appointments");
+        goBack("/appointments");
+      },
     },
-  });
+  );
 
   /* ── edit appointment (sheet) ── */
   const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState<{ type: AppointmentType; planId: string; notes: string }>({ type: "INITIAL_CONSULTATION", planId: "", notes: "" });
-  const plans = useQuery({
-    queryKey: ["plans", a?.patient.id, "active"],
-    queryFn: () => api.page<PlanOption>("/treatment-plans", { patientId: a!.patient.id, status: "ACTIVE" }),
-    enabled: editOpen && canEditBooking && !!a,
-    select: (r) => r.data,
-  });
+  const plans = useActivePlans(editOpen && canEditBooking ? a?.patient.id : undefined);
   const openEdit = () => {
     if (!a) return;
     setForm({ type: a.type, planId: a.treatmentPlan?.id ?? "", notes: a.notes ?? "" });
     saveAppt.reset();
     setEditOpen(true);
   };
-  const saveAppt = useMutation({
-    mutationFn: () =>
+  const saveAppt = useAction(
+    () =>
       api.patch(`/appointments/${id}`, {
         notes: form.notes.trim() || null,
         ...(canEditBooking ? { type: form.type, treatmentPlanId: form.type === "INITIAL_CONSULTATION" ? null : form.planId || null } : {}),
       }),
-    onSuccess: () => {
-      refresh();
-      setEditOpen(false);
-    },
-  });
+    { refresh: ["appointments"], onSuccess: () => setEditOpen(false) },
+  );
   const planMissing = canEditBooking && form.type === "THERAPY_SESSION" && !form.planId;
 
-  /* ── consultation notes ── */
-  const consult = useQuery({
-    queryKey: ["consultation", a?.consultation?.id],
-    queryFn: () => api.get<Consultation>(`/consultations/${a!.consultation!.id}`),
-    enabled: !!a?.consultation && canClinical,
-  });
   const [consultOpen, setConsultOpen] = useState(false);
   const [c, setC] = useState({ chiefComplaint: "", symptoms: "", historyOfIllness: "", clinicalImpression: "", recommendations: "", observations: "", painScore: 0, painLocation: "", diagnosis: "" });
   const openConsult = () => {
@@ -160,8 +130,8 @@ export default function AppointmentDetail() {
     saveConsult.reset();
     setConsultOpen(true);
   };
-  const saveConsult = useMutation({
-    mutationFn: async () => {
+  const saveConsult = useAction(
+    async () => {
       const cid = a!.consultation!.id;
       await api.patch(`/consultations/${cid}`, {
         chiefComplaint: c.chiefComplaint.trim() || undefined,
@@ -177,11 +147,8 @@ export default function AppointmentDetail() {
         diagnosis: c.diagnosis.trim() || undefined,
       });
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["consultation"] });
-      setConsultOpen(false);
-    },
-  });
+    { refresh: ["clinical"], onSuccess: () => setConsultOpen(false) },
+  );
 
   return (
     <Screen edges={["top", "bottom"]} refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
@@ -208,10 +175,13 @@ export default function AppointmentDetail() {
               <Badge status={a.status} />
             </Row>
             <Text weight="semibold" style={{ color: colors.gold300 }}>{date(a.startAt)}</Text>
-            <Text style={{ color: colors.navy100 }}>
-              {label(a.type)}
-              {a.therapySession?.sessionNumber ? ` · Session #${a.therapySession.sessionNumber}` : ""}
-            </Text>
+            <Row style={{ justifyContent: "space-between" }}>
+              <Text style={{ color: colors.navy100, flex: 1 }}>
+                {label(a.type)}
+                {a.therapySession?.sessionNumber ? ` · Session #${a.therapySession.sessionNumber}` : ""}
+              </Text>
+              {a.source === "WALK_IN" ? <Badge status="WALK_IN" text="Walk-in" /> : null}
+            </Row>
           </Card>
 
           <Card>
@@ -250,15 +220,15 @@ export default function AppointmentDetail() {
               onPress={() => router.push({ pathname: "/session/[id]", params: { id: a.therapySession!.id } })}
             />
           ) : null}
-          {(isTreating || isAdmin) && isConsult && !a.consultation && !CLOSED.includes(a.status) ? (
+          {(isTreating || isAdmin) && isConsult && (!a.consultation || isDraft) && !CLOSED.includes(a.status) ? (
             <Button
-              title="Write consultation"
+              title={isDraft ? "Continue consultation (draft)" : "Write consultation"}
               variant="gold"
               icon="document-text-outline"
               onPress={() => router.push({ pathname: "/consultation/new", params: { appointmentId: a.id } })}
             />
           ) : null}
-          {isTreating && a.consultation && a.status === "IN_PROGRESS" ? (
+          {isTreating && a.consultation && !isDraft && consult.data && a.status === "IN_PROGRESS" ? (
             <Button title="Mark visit completed" icon="checkmark-done-outline" onPress={() => act.mutate("complete")} loading={act.isPending} />
           ) : null}
 
@@ -266,9 +236,19 @@ export default function AppointmentDetail() {
           {a.consultation && canClinical ? (
             <Card>
               <Row style={{ justifyContent: "space-between" }}>
-                <H2>Consultation notes</H2>
-                {consult.data ? <Button title="Edit" variant="ghost" small icon="create-outline" onPress={openConsult} /> : null}
+                <Row gap={6} style={{ flex: 1 }}>
+                  <H2>Consultation notes</H2>
+                  {isDraft ? <Badge status="DRAFT" text="Draft" /> : null}
+                </Row>
+                {consult.data && !isDraft ? <Button title="Edit" variant="ghost" small icon="create-outline" onPress={openConsult} /> : null}
               </Row>
+              {consult.data ? (
+                <Pressable onPress={() => setHistoryOpen(true)} accessibilityRole="button" hitSlop={6}>
+                  <Muted style={{ fontSize: 12, color: colors.gold700 }}>
+                    {isDraft ? "Draft saved" : "Finished"} {dateTime(isDraft ? consult.data.updatedAt : consult.data.finalizedAt ?? consult.data.createdAt)} · View edit history ›
+                  </Muted>
+                </Pressable>
+              ) : null}
               {consult.isLoading ? (
                 <Loading />
               ) : consult.error ? (
@@ -319,8 +299,6 @@ export default function AppointmentDetail() {
               <Button title="Delete appointment" variant="danger" icon="trash-outline" onPress={() => remove.mutate()} loading={remove.isPending} />
               {hasClinical ? <Muted style={{ fontSize: 12, textAlign: "center" }}>This visit has already happened; deleting also removes its notes.</Muted> : null}
             </View>
-          ) : isFrontDesk && hasClinical ? (
-            <Muted style={{ fontSize: 12, textAlign: "center" }}>Visits that already happened can only be deleted by an Admin.</Muted>
           ) : null}
 
           {a.history?.length ? (
@@ -378,6 +356,27 @@ export default function AppointmentDetail() {
               <Input value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} multiline maxLength={1000} placeholder="Notes for this visit" />
             </Field>
             <ErrorBox error={saveAppt.error} />
+          </Sheet>
+
+          {/* Consultation edit history */}
+          <Sheet open={historyOpen} onClose={() => setHistoryOpen(false)} title="Consultation history">
+            {history.isLoading ? (
+              <Loading />
+            ) : history.error ? (
+              <ErrorBox error={history.error} onRetry={() => history.refetch()} />
+            ) : !history.data?.length ? (
+              <Muted>No changes recorded yet.</Muted>
+            ) : (
+              history.data.map((h) => (
+                <View key={h.id} style={{ borderLeftWidth: 2, borderLeftColor: colors.gold300, paddingLeft: space.md, paddingVertical: 2 }}>
+                  <Text weight="semibold" style={{ fontSize: 13 }}>
+                    {h.part} {h.action.toLowerCase()} by {h.by}
+                  </Text>
+                  {h.fields.length ? <Muted style={{ fontSize: 12 }}>{h.fields.join(", ")}</Muted> : null}
+                  <Muted style={{ fontSize: 11 }}>{dateTime(h.at)}</Muted>
+                </View>
+              ))
+            )}
           </Sheet>
 
           {/* Edit consultation sheet */}

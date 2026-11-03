@@ -24,10 +24,13 @@ export function AppointmentCard({ a, showTherapist = true }: { a: Appointment; s
           <Text weight="bold" style={{ fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(a.patient)}</Text>
           <Badge status={a.status} />
         </Row>
-        <Muted numberOfLines={1}>
-          {label(a.type)}
-          {a.therapySession?.sessionNumber ? ` · #${a.therapySession.sessionNumber}` : ""} · {a.patient.patientCode}
-        </Muted>
+        <Row gap={6}>
+          <Muted numberOfLines={1} style={{ flex: 1 }}>
+            {label(a.type)}
+            {a.therapySession?.sessionNumber ? ` · #${a.therapySession.sessionNumber}` : ""} · {a.patient.patientCode}
+          </Muted>
+          {a.source === "WALK_IN" ? <Badge status="WALK_IN" text="Walk-in" /> : null}
+        </Row>
         {showTherapist ? (
           <Row gap={6}>
             <View style={[styles.dot, { backgroundColor: a.therapist.colorTag ?? colors.gold500 }]} />

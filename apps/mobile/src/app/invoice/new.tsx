@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -7,6 +7,8 @@ import { goBack, RequireRole, SectionTitle, SelectField, type Option } from "@/c
 import { Button, Card, Divider, ErrorBox, Field, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fullName, inr } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import { colors, radius, space } from "@/theme";
 
 type ItemType = "CONSULTATION" | "THERAPY_SESSION" | "PACKAGE" | "HOME_VISIT" | "TRAVEL_CHARGE" | "OTHER";
@@ -58,7 +60,6 @@ export default function NewInvoice() {
 }
 
 function NewInvoiceForm() {
-  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   useEffect(() => {
@@ -72,7 +73,7 @@ function NewInvoiceForm() {
   const [notes, setNotes] = useState("");
 
   const patients = useQuery({
-    queryKey: ["patients", "invoice", debounced],
+    queryKey: qk.patients.list("invoice", { search: debounced }),
     queryFn: () => api.page<PatientRow>("/patients", { search: debounced || undefined, limit: 8 }),
     enabled: !patient,
   });
@@ -84,18 +85,14 @@ function NewInvoiceForm() {
   const body = { patientId: patient?.id, items, discountAmount, discountReason: discountReason.trim() || undefined, notes: notes.trim() || undefined };
 
   const preview = useQuery({
-    queryKey: ["invoice-preview", body],
+    queryKey: qk.invoicePreview(body),
     queryFn: () => api.post<Preview>("/invoices/preview", body),
     enabled: !!patient && linesOk && discountOk,
   });
 
-  const save = useMutation({
-    mutationFn: (issue: boolean) => api.post<{ id: string }>("/invoices", { ...body, issue }),
-    onSuccess: (inv) => {
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-      router.replace({ pathname: "/invoice/[id]", params: { id: inv.id } });
-    },
+  const save = useAction((issue: boolean) => api.post<{ id: string }>("/invoices", { ...body, issue }), {
+    refresh: ["billing"],
+    onSuccess: (inv) => router.replace({ pathname: "/invoice/[id]", params: { id: inv.id } }),
   });
 
   const update = (key: number, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));

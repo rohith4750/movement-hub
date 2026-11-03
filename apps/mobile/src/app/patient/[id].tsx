@@ -1,5 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { CategoryBadge, visitSummary } from "@/components/patient-visits";
+import { usePatient } from "@/lib/queries";
+import { qk } from "@/lib/query-keys";
+import { forget, refresh, useAction } from "@/lib/refresh";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Linking, Pressable, View } from "react-native";
@@ -11,7 +15,6 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
 import { ageYears, date, dateTime, fullName, label } from "@/lib/format";
-import type { PatientDetail } from "@/lib/types";
 import { colors, space } from "@/theme";
 
 type Panel = "history" | "package" | "plan" | null;
@@ -20,7 +23,7 @@ export default function PatientScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const qc = useQueryClient();
   const user = useAuth((s) => s.user);
-  const q = useQuery({ queryKey: ["patient", id], queryFn: () => api.get<PatientDetail>(`/patients/${id}`), enabled: !!id });
+  const q = usePatient(id);
   const p = q.data;
   const age = ageYears(p?.dateOfBirth);
   const [panel, setPanel] = useState<Panel>(null);
@@ -34,8 +37,8 @@ export default function PatientScreen() {
   const canPlan = hasRole(user, "PHYSIOTHERAPIST", "ADMIN");
   const canSeeProgress = hasRole(user, "PHYSIOTHERAPIST", "ADMIN");
 
-  const remove = useMutation({
-    mutationFn: async () => {
+  const remove = useAction(
+    async () => {
       if (!p) return false;
       const ok = await confirm(
         `Delete ${fullName(p)}?`,
@@ -47,13 +50,15 @@ export default function PatientScreen() {
       await api.del(`/patients/${p.id}`);
       return true;
     },
-    onSuccess: (deleted) => {
-      if (!deleted) return;
-      qc.invalidateQueries({ queryKey: ["patients"] });
-      qc.removeQueries({ queryKey: ["patient", id] });
-      router.replace("/patients");
+    {
+      onSuccess: (deleted) => {
+        if (!deleted) return;
+        forget(qc, qk.patient(id));
+        void refresh(qc, "patients");
+        router.replace("/patients");
+      },
     },
-  });
+  );
 
   return (
     <Screen edges={["top", "bottom"]} refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
@@ -75,9 +80,13 @@ export default function PatientScreen() {
       ) : p ? (
         <>
           <Card style={{ backgroundColor: colors.navy700, borderColor: colors.navy700 }}>
-            <Text weight="bold" style={{ color: colors.white, fontSize: 20 }}>{fullName(p)}</Text>
+            <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+              <Text weight="bold" style={{ color: colors.white, fontSize: 20, flex: 1 }}>{fullName(p)}</Text>
+              <CategoryBadge visits={p.visits} />
+            </Row>
             <Text style={{ color: colors.gold300 }}>{p.patientCode} · {label(p.gender)}{age !== null ? ` · ${age} yrs` : ""}</Text>
             {p.primaryTherapist ? <Text style={{ color: colors.navy100, fontSize: 13 }}>Regular physio: {p.primaryTherapist.user.name}</Text> : null}
+            {p.visits ? <Text style={{ color: colors.navy100, fontSize: 13 }}>{visitSummary(p.visits)}</Text> : null}
             <Pressable onPress={() => Linking.openURL(`tel:${p.phone}`)} accessibilityRole="link" accessibilityLabel={`Call ${p.phone}`}>
               <Row gap={6} style={{ marginTop: space.xs }}>
                 <Ionicons name="call" size={14} color={colors.navy100} />

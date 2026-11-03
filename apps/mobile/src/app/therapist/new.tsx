@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Switch, View } from "react-native";
@@ -6,6 +6,8 @@ import { PinFields, pinProblem } from "@/components/admin-pin";
 import { RequireRole, SectionTitle, goBack } from "@/components/form";
 import { Button, Card, ErrorBox, Field, Input, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import { colors, radius, space } from "@/theme";
 
 const SWATCHES = ["#1b2160", "#b45309", "#047857", "#7c3aed", "#be123c", "#0e7490", "#c9a14a", "#4d7c0f"];
@@ -19,15 +21,14 @@ export default function NewTherapistScreen() {
 }
 
 function NewTherapist() {
-  const qc = useQueryClient();
-  const specs = useQuery({ queryKey: ["specializations"], queryFn: () => api.get<{ id: string; name: string }[]>("/specializations") });
+  const specs = useQuery({ queryKey: qk.specializations(), queryFn: () => api.get<{ id: string; name: string }[]>("/specializations") });
   const [f, setF] = useState({ name: "", email: "", phone: "", password: "", qualification: "BPT", experienceYears: "0", colorTag: SWATCHES[0], isAvailableForHomeVisit: false });
   const [specIds, setSpecIds] = useState<string[]>([]);
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
 
-  const create = useMutation({
-    mutationFn: () =>
+  const create = useAction(
+    () =>
       api.post<{ id: string }>("/therapists", {
         name: f.name.trim(),
         email: f.email.trim(),
@@ -40,11 +41,8 @@ function NewTherapist() {
         specializationIds: specIds,
         pin,
       }),
-    onSuccess: (t) => {
-      qc.invalidateQueries({ queryKey: ["therapists"] });
-      router.replace({ pathname: "/therapist/[id]", params: { id: t.id } });
-    },
-  });
+    { refresh: ["staff", "schedule"], onSuccess: (t) => router.replace({ pathname: "/therapist/[id]", params: { id: t.id } }) },
+  );
 
   const missing = !f.name.trim()
     ? "Enter the name"

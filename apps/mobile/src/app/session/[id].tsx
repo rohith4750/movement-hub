@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -8,6 +8,8 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
 import { fullName, time } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import type { TherapySession } from "@/lib/types";
 import { colors, radius, space } from "@/theme";
 
@@ -16,9 +18,8 @@ type Exercise = { name: string; sets: string; reps: string };
 /** Physio flow: start session (pain before) → treat → complete (pain after, notes, exercises). */
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const qc = useQueryClient();
   const user = useAuth((s) => s.user);
-  const q = useQuery({ queryKey: ["session", id], queryFn: () => api.get<TherapySession>(`/therapy-sessions/${id}`), enabled: !!id });
+  const q = useQuery({ queryKey: qk.session(id), queryFn: () => api.get<TherapySession>(`/therapy-sessions/${id}`), enabled: !!id });
   const s = q.data;
 
   // Form state (null = use the value already saved on the session)
@@ -34,16 +35,9 @@ export default function SessionScreen() {
     exercises ??
     (s?.treatmentPlan?.items.filter((i) => i.category === "Exercise Therapy").map((i) => ({ name: i.name, sets: i.sets ? String(i.sets) : "", reps: i.reps ? String(i.reps) : "" })) ?? []);
 
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["session", id] });
-    qc.invalidateQueries({ queryKey: ["sessions"] });
-    qc.invalidateQueries({ queryKey: ["appointments"] });
-    qc.invalidateQueries({ queryKey: ["dashboard"] });
-  };
-
-  const start = useMutation({ mutationFn: () => api.post(`/therapy-sessions/${id}/start`, { painBefore: before }), onSuccess: refresh });
-  const complete = useMutation({
-    mutationFn: () =>
+  const start = useAction(() => api.post(`/therapy-sessions/${id}/start`, { painBefore: before }), { refresh: ["clinical", "appointments"] });
+  const complete = useAction(
+    () =>
       api.post<{ package: { remainingSessions: number } | null; plan: { id: string; planNo: string; prescribedSessions: number; readyToComplete: boolean } | null }>(`/therapy-sessions/${id}/complete`, {
         painBefore: before,
         painAfter,
@@ -54,25 +48,25 @@ export default function SessionScreen() {
           .filter((e) => e.name.trim())
           .map((e) => ({ name: e.name.trim(), sets: e.sets ? Number(e.sets) : undefined, reps: e.reps ? Number(e.reps) : undefined })),
       }),
-    onSuccess: async (r) => {
-      refresh();
-      qc.invalidateQueries({ queryKey: ["plans"] });
-      if (r.plan) qc.invalidateQueries({ queryKey: ["plan", r.plan.id] });
-      if (r.plan?.readyToComplete) {
-        // Last prescribed session done — offer to complete the treatment right away.
-        const open = await confirm(
-          "All sessions done",
-          `All ${r.plan.prescribedSessions} prescribed sessions of plan ${r.plan.planNo} are complete. Open the plan to record the outcome and complete the treatment?`,
-          "Open plan",
-        );
-        if (open) {
-          router.replace({ pathname: "/plan/[id]", params: { id: r.plan.id, complete: "1" } });
-          return;
+    {
+      refresh: ["clinical", "appointments"],
+      onSuccess: async (r) => {
+        if (r.plan?.readyToComplete) {
+          // Last prescribed session done — offer to complete the treatment right away.
+          const open = await confirm(
+            "All sessions done",
+            `All ${r.plan.prescribedSessions} prescribed sessions of plan ${r.plan.planNo} are complete. Open the plan to record the outcome and complete the treatment?`,
+            "Open plan",
+          );
+          if (open) {
+            router.replace({ pathname: "/plan/[id]", params: { id: r.plan.id, complete: "1" } });
+            return;
+          }
         }
-      }
-      router.back();
+        router.back();
+      },
     },
-  });
+  );
 
   // Same rule as the API: the treating physiotherapist (or a Super Admin) runs the session.
   const mine = user?.role === "SUPER_ADMIN" || (user?.role === "PHYSIOTHERAPIST" && user.therapistId === s?.therapist.id);

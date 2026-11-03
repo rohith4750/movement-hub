@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Linking, StyleSheet, Switch, View } from "react-native";
@@ -9,6 +9,8 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
 import { date, dateTime, fullName, today } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
+import { forget, refresh, useAction } from "@/lib/refresh";
 import { colors, radius, space } from "@/theme";
 
 interface TherapistDetail {
@@ -58,15 +60,15 @@ function TherapistDetailScreen() {
   const isSelf = user?.role === "PHYSIOTHERAPIST" && user.therapistId === id;
   const canLeave = isAdmin || isSelf;
 
-  const q = useQuery({ queryKey: ["therapist", id], queryFn: () => api.get<TherapistDetail>(`/therapists/${id}`), enabled: !!id });
+  const q = useQuery({ queryKey: qk.therapist(id), queryFn: () => api.get<TherapistDetail>(`/therapists/${id}`), enabled: !!id });
   // PIN status comes from the list endpoint (detail never exposes PIN data).
   const list = useQuery({
-    queryKey: ["therapists", "admin-list", true],
+    queryKey: qk.therapists.list({ admin: true }),
     queryFn: () => api.get<{ id: string; user: { hasPin?: boolean } }[]>("/therapists", { includeInactive: true }),
     enabled: isAdmin,
   });
   const hasPin = list.data?.find((t) => t.id === id)?.user.hasPin;
-  const leaves = useQuery({ queryKey: ["leaves", id], queryFn: () => api.get<Leave[]>(`/therapists/${id}/leaves`), enabled: !!id && canLeave });
+  const leaves = useQuery({ queryKey: qk.leaves(id), queryFn: () => api.get<Leave[]>(`/therapists/${id}/leaves`), enabled: !!id && canLeave });
 
   const [pinFor, setPinFor] = useState<{ id: string; name: string; hasPin?: boolean } | null>(null);
   const [editing, setEditing] = useState<Day[] | null>(null);
@@ -74,38 +76,34 @@ function TherapistDetailScreen() {
   const [conflicts, setConflicts] = useState<Conflict[] | null>(null);
   const [generated, setGenerated] = useState<number | null>(null);
 
-  const refreshSlots = () => {
-    for (const k of ["calendar", "availability", "availability-summary", "dashboard"]) qc.invalidateQueries({ queryKey: [k] });
-  };
-
-  const generate = useMutation({
-    mutationFn: () => api.post<{ created: number }>(`/therapists/${id}/slots/generate`, { from: today(), to: addDaysYmd(today(), 30) }),
-    onSuccess: (r) => {
-      setGenerated(r.created);
-      refreshSlots();
-    },
+  const generate = useAction(() => api.post<{ created: number }>(`/therapists/${id}/slots/generate`, { from: today(), to: addDaysYmd(today(), 30) }), {
+    refresh: ["schedule"],
+    onSuccess: (r) => setGenerated(r.created),
   });
-  const decide = useMutation({
-    mutationFn: ({ leaveId, status }: { leaveId: string; status: "APPROVED" | "REJECTED" }) => api.patch<{ conflicts: Conflict[] }>(`/therapists/${id}/leaves/${leaveId}`, { status }),
-    onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ["leaves", id] });
-      refreshSlots();
-      if (r.conflicts?.length) setConflicts(r.conflicts);
+  const decide = useAction(
+    ({ leaveId, status }: { leaveId: string; status: "APPROVED" | "REJECTED" }) => api.patch<{ conflicts: Conflict[] }>(`/therapists/${id}/leaves/${leaveId}`, { status }),
+    {
+      refresh: ["schedule"],
+      onSuccess: (r) => {
+        if (r.conflicts?.length) setConflicts(r.conflicts);
+      },
     },
-  });
-  const remove = useMutation({
-    mutationFn: async () => {
+  );
+  const remove = useAction(
+    async () => {
       const name = q.data?.user.name ?? "this physiotherapist";
       if (!(await confirm(`Delete ${name}?`, "They can no longer sign in and their free slots disappear from booking. Past consultations and sessions stay for history. Upcoming appointments must be rescheduled first.", "Delete", true))) return null;
       return api.del(`/therapists/${id}`);
     },
-    onSuccess: (r) => {
-      if (!r) return;
-      qc.invalidateQueries({ queryKey: ["therapists"] });
-      refreshSlots();
-      router.replace("/therapists");
+    {
+      onSuccess: (r) => {
+        if (!r) return;
+        forget(qc, qk.therapist(id));
+        void refresh(qc, "staff", "schedule");
+        router.replace("/therapists");
+      },
     },
-  });
+  );
 
   const t = q.data;
   const startEditing = () => {
@@ -165,10 +163,7 @@ function TherapistDetailScreen() {
             <ScheduleEditor
               therapistId={id}
               initial={editing}
-              onDone={() => {
-                setEditing(null);
-                refreshSlots();
-              }}
+              onDone={() => setEditing(null)}
             />
           ) : (
             <Card>
@@ -251,7 +246,6 @@ function TherapistDetailScreen() {
         onClose={() => setLeaveOpen(false)}
         onSaved={(c) => {
           setLeaveOpen(false);
-          refreshSlots();
           setConflicts(c.length ? c : null);
         }}
       />
@@ -276,14 +270,13 @@ function dayProblem(d: Day): string | null {
 }
 
 function ScheduleEditor({ therapistId, initial, onDone }: { therapistId: string; initial: Day[]; onDone: () => void }) {
-  const qc = useQueryClient();
   const [rows, setRows] = useState<Day[]>(initial);
   const upd = (i: number, patch: Partial<Day>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const problems = rows.map(dayProblem);
   const firstProblem = problems.find(Boolean);
 
-  const save = useMutation({
-    mutationFn: () =>
+  const save = useAction(
+    () =>
       api.put(`/therapists/${therapistId}/schedule`, {
         regenerateDays: 30,
         days: rows
@@ -296,12 +289,8 @@ function ScheduleEditor({ therapistId, initial, onDone }: { therapistId: string;
             ...(r.breakStart && r.breakEnd ? { breakStart: r.breakStart, breakEnd: r.breakEnd } : {}),
           })),
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["therapist", therapistId] });
-      qc.invalidateQueries({ queryKey: ["schedule", therapistId] });
-      onDone();
-    },
-  });
+    { refresh: ["schedule"], onSuccess: onDone },
+  );
 
   return (
     <View style={{ gap: space.sm }}>
@@ -343,14 +332,12 @@ function ScheduleEditor({ therapistId, initial, onDone }: { therapistId: string;
 /* ───────────────────────── Leave sheet ───────────────────────── */
 
 function LeaveSheet({ open, therapistId, isAdmin, onClose, onSaved }: { open: boolean; therapistId: string; isAdmin: boolean; onClose: () => void; onSaved: (conflicts: Conflict[]) => void }) {
-  const qc = useQueryClient();
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
   const [reason, setReason] = useState("");
-  const save = useMutation({
-    mutationFn: () => api.post<{ conflicts: Conflict[] }>(`/therapists/${therapistId}/leaves`, { startDate: from, endDate: to, reason: reason.trim() || undefined }),
+  const save = useAction(() => api.post<{ conflicts: Conflict[] }>(`/therapists/${therapistId}/leaves`, { startDate: from, endDate: to, reason: reason.trim() || undefined }), {
+    refresh: ["schedule"],
     onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ["leaves", therapistId] });
       setReason("");
       onSaved(r.conflicts ?? []);
     },

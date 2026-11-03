@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, Switch, View } from "react-native";
@@ -8,6 +8,8 @@ import { Badge, Button, Card, Chips, Empty, ErrorBox, Field, Input, Loading, Mut
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { date, fullName, inr, label } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import { colors, space } from "@/theme";
 
 type Tier = "BASIC" | "STANDARD" | "PREMIUM" | "CUSTOM";
@@ -52,11 +54,11 @@ function PackagesScreen() {
   const [editing, setEditing] = useState<PackageDef | "new" | null>(null);
 
   const catalogue = useQuery({
-    queryKey: ["packages", isAdmin ? "all" : "active"],
+    queryKey: qk.packages(isAdmin ? "all" : "active"),
     queryFn: () => api.get<PackageDef[]>("/packages", { includeInactive: isAdmin || undefined }),
   });
   const sold = useQuery({
-    queryKey: ["patient-packages", "list", status],
+    queryKey: qk.patientPackages.list({ status }),
     queryFn: () => api.page<PatientPackageRow>("/patient-packages", { status: status === "all" ? undefined : status, limit: 100 }),
   });
 
@@ -164,7 +166,6 @@ const TIERS: { value: Tier; label: string }[] = [
 
 /** Admin: create a package or edit an existing one (incl. whether it's offered for sale). */
 function PackageEditor({ pkg, onClose }: { pkg: PackageDef | null; onClose: () => void }) {
-  const qc = useQueryClient();
   const [f, setF] = useState({
     name: pkg?.name ?? "",
     tier: (pkg?.tier ?? "CUSTOM") as Tier,
@@ -190,8 +191,8 @@ function PackageEditor({ pkg, onClose }: { pkg: PackageDef | null; onClose: () =
             ? "Validity must be 1–730 days"
             : null;
 
-  const save = useMutation({
-    mutationFn: async () => {
+  const save = useAction(
+    async () => {
       const body = {
         name: f.name.trim(),
         tier: f.tier,
@@ -205,11 +206,8 @@ function PackageEditor({ pkg, onClose }: { pkg: PackageDef | null; onClose: () =
       await api.patch(`/packages/${pkg.id}`, body);
       if (f.isActive !== pkg.isActive) await api.patch(`/packages/${pkg.id}/status`, { isActive: f.isActive });
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["packages"] });
-      onClose();
-    },
-  });
+    { refresh: ["packages"], onSuccess: onClose },
+  );
 
   return (
     <Sheet

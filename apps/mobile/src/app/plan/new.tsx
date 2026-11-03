@@ -7,6 +7,7 @@ import { PlanEditor } from "@/components/plan-editor";
 import { Button, Card, H2, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fullName } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
 import type { PatientListItem } from "@/lib/types";
 import { colors, space } from "@/theme";
 
@@ -27,7 +28,7 @@ function NewPlan() {
   const patientId = fixed ?? chosen?.id;
 
   const patients = useQuery({
-    queryKey: ["patients", "plan-new", search],
+    queryKey: qk.patients.list("plan-new", { search }),
     queryFn: () => api.page<PatientListItem>("/patients", { search: search.trim() || undefined, limit: 8 }),
     enabled: !fixed && !chosen,
   });

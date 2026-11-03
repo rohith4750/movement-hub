@@ -29,6 +29,21 @@ export const time = (v?: string | Date | null) => {
 
 export const dateTime = (v?: string | Date | null) => (v ? `${date(v)}, ${time(v)}` : "—");
 
+/** Clinic-time HH:mm of an instant (matches the API's "usual time" values). */
+export const hhmm = (v: string | Date) => clinic(v).toISOString().slice(11, 16);
+
+/** Clinic-time YYYY-MM-DD of an instant. */
+export const clinicDay = (v: string | Date) => clinic(v).toISOString().slice(0, 10);
+
+/** Clinic-time hour (0–23) of an instant. */
+export const clinicHour = (v: string | Date) => clinic(v).getUTCHours();
+
+/** "14:30" → "2:30 PM". */
+export const clock = (hm: string) => {
+  const [h, m] = hm.split(":").map(Number);
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+};
+
 export const weekday = (v: string | Date) => DAYS[clinic(v).getUTCDay()];
 
 /** Today's clinic date as YYYY-MM-DD. */

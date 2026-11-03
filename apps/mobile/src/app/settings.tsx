@@ -1,9 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { View } from "react-native";
 import { RequireRole, SectionTitle, SelectField, goBack, type Option } from "@/components/form";
 import { Button, Card, ErrorBox, Field, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import { colors, space } from "@/theme";
 
 interface Settings {
@@ -53,16 +55,15 @@ export default function SettingsScreen() {
 }
 
 function SettingsForm() {
-  const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Settings>("/settings") });
+  const q = useQuery({ queryKey: qk.settings(), queryFn: () => api.get<Settings>("/settings") });
   // null = untouched → show the saved values
   const [draft, setDraft] = useState<Form | null>(null);
   const f: Form | null = draft ?? (q.data ? toForm(q.data) : null);
   const set = (k: keyof Form, v: string) => f && setDraft({ ...f, [k]: v });
   const num = (v: string) => v.replace(/[^\d.]/g, "");
 
-  const save = useMutation({
-    mutationFn: () =>
+  const save = useAction(
+    () =>
       api.patch<Settings>("/settings", {
         consultationFee: Number(f!.consultationFee),
         therapySessionFee: Number(f!.therapySessionFee),
@@ -76,11 +77,8 @@ function SettingsForm() {
         reminderHoursBefore: Number(f!.reminderHoursBefore),
         invoicePrefix: f!.invoicePrefix.trim(),
       }),
-    onSuccess: () => {
-      setDraft(null);
-      qc.invalidateQueries({ queryKey: ["settings"] });
-    },
-  });
+    { refresh: ["settings"], onSuccess: () => setDraft(null) },
+  );
 
   const problem = !f
     ? null

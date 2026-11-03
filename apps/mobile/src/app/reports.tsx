@@ -1,5 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
+import { useMonthlyReport } from "@/lib/queries";
+import { qk } from "@/lib/query-keys";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -20,6 +22,7 @@ interface Appts {
   noShowRate: number;
   cancellationRate: number;
   byStatus: { status: string; count: number }[];
+  bySource?: { source: "SCHEDULED" | "WALK_IN"; count: number }[];
   completedByTherapist: { name?: string; count: number }[];
 }
 interface Util {
@@ -51,13 +54,16 @@ function ReportsScreen() {
   const rangeOk = !!from && !!to && from <= to;
   const range = { from, to };
 
-  const revenue = useQuery({ queryKey: ["report", "revenue", range], queryFn: () => api.get<Revenue>("/reports/revenue", range), enabled: rangeOk });
-  const appts = useQuery({ queryKey: ["report", "appointments", range], queryFn: () => api.get<Appts>("/reports/appointments", range), enabled: rangeOk && isAdmin });
-  const util = useQuery({ queryKey: ["report", "utilization", range], queryFn: () => api.get<Util>("/reports/therapist-utilization", range), enabled: rangeOk && isAdmin });
-  const pkgs = useQuery({ queryKey: ["report", "packages", range], queryFn: () => api.get<Pkgs>("/reports/packages", range), enabled: rangeOk });
-  const due = useQuery({ queryKey: ["report", "outstanding"], queryFn: () => api.get<Outstanding>("/reports/outstanding") });
+  const revenue = useQuery({ queryKey: qk.report("revenue", range), queryFn: () => api.get<Revenue>("/reports/revenue", range), enabled: rangeOk });
+  const appts = useQuery({ queryKey: qk.report("appointments", range), queryFn: () => api.get<Appts>("/reports/appointments", range), enabled: rangeOk && isAdmin });
+  const util = useQuery({ queryKey: qk.report("utilization", range), queryFn: () => api.get<Util>("/reports/therapist-utilization", range), enabled: rangeOk && isAdmin });
+  const pkgs = useQuery({ queryKey: qk.report("packages", range), queryFn: () => api.get<Pkgs>("/reports/packages", range), enabled: rangeOk });
+  const due = useQuery({ queryKey: qk.report("outstanding"), queryFn: () => api.get<Outstanding>("/reports/outstanding") });
+  const monthly = useMonthlyReport(6, isAdmin);
 
-  const all = [revenue, appts, util, pkgs, due];
+  const all = [revenue, appts, util, pkgs, due, monthly];
+  const walkIns = appts.data?.bySource?.find((x) => x.source === "WALK_IN")?.count ?? 0;
+  const ahead = appts.data?.bySource?.find((x) => x.source === "SCHEDULED")?.count ?? 0;
   const refreshing = all.some((x) => x.isRefetching);
 
   // Collections per day (series is per day per payment method).
@@ -109,6 +115,49 @@ function ReportsScreen() {
 
           <SectionTitle>Appointments by status</SectionTitle>
           <Card>{appts.isLoading ? <Loading /> : <Bars rows={(appts.data?.byStatus ?? []).map((s) => ({ label: label(s.status), value: s.count }))} />}</Card>
+
+          <SectionTitle>Walk-in vs booked ahead</SectionTitle>
+          <Card>
+            {appts.isLoading ? (
+              <Loading />
+            ) : (
+              <Bars
+                rows={[
+                  { label: "Booked ahead", value: ahead, color: colors.navy600 },
+                  { label: "Walk-in", value: walkIns, color: colors.gold500 },
+                ]}
+              />
+            )}
+          </Card>
+
+          <SectionTitle>Last 6 months</SectionTitle>
+          <Card style={{ gap: 2 }}>
+            {monthly.isLoading ? (
+              <Loading />
+            ) : (
+              <>
+                <Row style={styles.tableRow}>
+                  <Muted style={[styles.cell, { flex: 1.4, textAlign: "left" }]}>Month</Muted>
+                  <Muted style={styles.cell}>Visits</Muted>
+                  <Muted style={styles.cell}>Done</Muted>
+                  <Muted style={styles.cell}>Walk-in</Muted>
+                  <Muted style={styles.cell}>No-show</Muted>
+                  <Muted style={styles.cell}>New pts</Muted>
+                </Row>
+                {(monthly.data ?? []).map((m) => (
+                  <Row key={m.month} style={styles.tableRow}>
+                    <Text weight="semibold" style={[styles.cell, { flex: 1.4, textAlign: "left" }]}>{monthName(m.month)}</Text>
+                    <Text style={styles.cell}>{m.visits}</Text>
+                    <Text style={styles.cell}>{m.completed}</Text>
+                    <Text style={styles.cell}>{m.walkIns}</Text>
+                    <Text style={[styles.cell, m.noShows ? { color: colors.danger } : null]}>{m.noShows}</Text>
+                    <Text style={styles.cell}>{m.newPatients}</Text>
+                  </Row>
+                ))}
+                <Bars rows={(monthly.data ?? []).map((m) => ({ label: monthName(m.month), value: m.completed, display: `${m.completed} done`, color: colors.gold500 }))} />
+              </>
+            )}
+          </Card>
         </>
       ) : null}
 
@@ -156,7 +205,11 @@ function ReportsScreen() {
   );
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const monthName = (ym: string) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}`;
+
 const styles = StyleSheet.create({
+  cell: { flex: 1, textAlign: "right", fontSize: 12 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
   tableRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
 });

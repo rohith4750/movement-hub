@@ -16,6 +16,7 @@ export default function TodayScreen() {
   const isPhysio = user?.role === "PHYSIOTHERAPIST";
   const canBook = hasRole(user, "ADMIN", "RECEPTIONIST");
   const canSeeMoney = hasRole(user, "ADMIN", "ACCOUNTANT");
+  const isOwner = hasRole(user, "ADMIN"); // Super Admin / admin: clinic-wide figures
   const dash = useDashboard();
   const todays = useAppointmentsOn(today());
 
@@ -36,6 +37,7 @@ export default function TodayScreen() {
       <Row gap={space.md}>
         {canBook ? <QuickAction icon="person-add" label="Add patient" onPress={() => router.push("/patient/new")} /> : null}
         {canBook ? <QuickAction icon="add-circle" label="Book visit" onPress={() => router.push("/book")} /> : null}
+        {canBook ? <QuickAction icon="clipboard" label="Plan day" onPress={() => router.push("/planner")} /> : null}
         {hasRole(user, "ADMIN", "PHYSIOTHERAPIST") ? <QuickAction icon="pulse" label="Sessions" onPress={() => router.push("/sessions")} /> : null}
         {!canBook && hasRole(user, "ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST", "ACCOUNTANT") ? <QuickAction icon="search" label="Find patient" onPress={() => router.push("/patients")} /> : null}
         {hasRole(user, "ADMIN", "RECEPTIONIST", "ACCOUNTANT") && !hasRole(user, "PHYSIOTHERAPIST") ? <QuickAction icon="wallet" label="Billing" onPress={() => router.push("/billing")} /> : null}
@@ -56,6 +58,12 @@ export default function TodayScreen() {
           ) : (
             <Stat label="Physios free" value={dash.data.availableTherapists} />
           )}
+          {isOwner ? (
+            <>
+              <Stat label="Walk-ins today" value={dash.data.walkInsToday} hint={`${dash.data.scheduledToday} booked ahead`} />
+              <Stat label="Regular patients" value={dash.data.regularPatients} hint={`of ${dash.data.totalPatients} · ${dash.data.newPatientsMonth} new this month`} />
+            </>
+          ) : null}
         </View>
       ) : null}
 

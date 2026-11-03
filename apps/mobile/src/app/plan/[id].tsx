@@ -1,6 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { PlanReplaceCancelled, withActivePlanCheck } from "@/lib/plan-activation";
+import { qk } from "@/lib/query-keys";
+import { forget, refresh, useAction } from "@/lib/refresh";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Pressable, View } from "react-native";
 import { DailyProgressCard } from "@/components/daily-progress";
 import { goBack, Sheet, StatTile } from "@/components/form";
@@ -22,7 +25,7 @@ export default function PlanScreen() {
   const { id, complete: openComplete } = useLocalSearchParams<{ id: string; complete?: string }>();
   const qc = useQueryClient();
   const user = useAuth((s) => s.user);
-  const q = useQuery({ queryKey: ["plan", id], queryFn: () => api.get<Detail>(`/treatment-plans/${id}`), enabled: !!id });
+  const q = useQuery({ queryKey: qk.plan(id), queryFn: () => api.get<Detail>(`/treatment-plans/${id}`), enabled: !!id });
   const p = q.data;
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -41,21 +44,17 @@ export default function PlanScreen() {
   const canCancel = canManage && open;
   const canDelete = canManage && !!p;
 
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["plan", id] });
-    qc.invalidateQueries({ queryKey: ["plans"] });
-    if (p) qc.invalidateQueries({ queryKey: ["patient", p.patient.id] });
-  };
-
-  const act = useMutation({
-    mutationFn: (action: "activate") => api.post(`/treatment-plans/${id}/${action}`),
-    onSuccess: refresh,
-  });
+  // Activating while the patient has another active plan asks to replace it (one active plan per patient).
+  const act = useAction(
+    () => withActivePlanCheck((replaceActive) => api.post(`/treatment-plans/${id}/activate`, { replaceActive })),
+    { refresh: ["clinical", "appointments"] },
+  );
+  const actError = act.error instanceof PlanReplaceCancelled ? null : act.error;
 
   const booked = p?.progress.bookedVisits ?? 0;
   const painOk = finalPain === "" || Number(finalPain) <= 10;
-  const complete = useMutation({
-    mutationFn: () =>
+  const complete = useAction(
+    () =>
       api.post(`/treatment-plans/${id}/complete`, {
         outcome,
         finalPainScore: finalPain === "" ? undefined : Number(finalPain),
@@ -63,35 +62,32 @@ export default function PlanScreen() {
         homeProgram: homeProgram.trim() || undefined,
         cancelUpcoming: booked > 0,
       }),
-    onSuccess: () => {
-      refresh();
-      qc.invalidateQueries({ queryKey: ["appointments"] });
-      qc.invalidateQueries({ queryKey: ["sessions"] });
-      setCompleteOpen(false);
-    },
-  });
+    { refresh: ["clinical", "appointments"], onSuccess: () => setCompleteOpen(false) },
+  );
 
-  const openDischarge = () => {
-    if (!p) return;
-    complete.reset();
-    setOutcome(p.progress.completedSessions < p.prescribedSessions ? "PARTIALLY_MET" : "GOALS_MET");
-    setFinalPain(p.progress.latestPain != null ? String(p.progress.latestPain) : "");
+  /** Prefill the discharge form from the plan's progress and show it. */
+  const prefillDischarge = (plan: Detail) => {
+    setOutcome(plan.progress.completedSessions < plan.prescribedSessions ? "PARTIALLY_MET" : "GOALS_MET");
+    setFinalPain(plan.progress.latestPain != null ? String(plan.progress.latestPain) : "");
     setSummary("");
     setHomeProgram("");
     setCompleteOpen(true);
   };
+  const openDischarge = () => {
+    if (!p) return;
+    complete.reset();
+    prefillDischarge(p);
+  };
 
-  // Opened from "All sessions done" after the last session: go straight to the discharge form.
+  // Opened from "All sessions done" after the last session: go straight to the discharge form,
+  // once, as soon as the plan has loaded (state adjusted during render — no effect needed).
   const [autoOpened, setAutoOpened] = useState(false);
-  useEffect(() => {
-    if (openComplete === "1" && !autoOpened && p?.status === "ACTIVE" && canManage) {
-      setAutoOpened(true);
-      openDischarge();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openComplete, autoOpened, p?.status, canManage]);
-  const remove = useMutation({
-    mutationFn: async () => {
+  if (openComplete === "1" && !autoOpened && p?.status === "ACTIVE" && canManage) {
+    setAutoOpened(true);
+    prefillDischarge(p);
+  }
+  const remove = useAction(
+    async () => {
       const nothingDone = p && p.progress.completedSessions === 0 && p.progress.upcomingSessions === 0;
       const msg = nothingDone
         ? "This removes the plan. Use it for plans created by mistake."
@@ -99,17 +95,18 @@ export default function PlanScreen() {
       if (!(await confirm(`Delete ${p?.title ?? "plan"}?`, msg, "Delete", true))) return null;
       return api.del(`/treatment-plans/${id}`);
     },
-    onSuccess: (r) => {
-      if (!r) return;
-      qc.invalidateQueries({ queryKey: ["plans"] });
-      if (p) qc.invalidateQueries({ queryKey: ["patient", p.patient.id] });
-      goBack("/treatment-plans");
+    {
+      onSuccess: (r) => {
+        if (!r) return;
+        forget(qc, qk.plan(id));
+        void refresh(qc, "clinical");
+        goBack("/treatment-plans");
+      },
     },
-  });
-  const cancel = useMutation({
-    mutationFn: () => api.post(`/treatment-plans/${id}/cancel`, { reason: reason.trim() }),
+  );
+  const cancel = useAction(() => api.post(`/treatment-plans/${id}/cancel`, { reason: reason.trim() }), {
+    refresh: ["clinical", "appointments"],
     onSuccess: () => {
-      refresh();
       setCancelOpen(false);
       setReason("");
     },
@@ -182,9 +179,9 @@ export default function PlanScreen() {
 
           {canEdit || canActivate || canComplete || canCancel || canDelete ? (
             <View style={{ gap: space.sm }}>
-              <ErrorBox error={act.error ?? remove.error} />
+              <ErrorBox error={actError ?? remove.error} />
               {canEdit ? <Button title="Edit plan" variant="ghost" icon="create-outline" onPress={() => router.push({ pathname: "/plan/edit/[id]", params: { id: p.id } })} /> : null}
-              {canActivate ? <Button title="Activate plan" icon="play-circle-outline" onPress={() => act.mutate("activate")} loading={act.isPending} /> : null}
+              {canActivate ? <Button title="Activate plan" icon="play-circle-outline" onPress={() => act.mutate()} loading={act.isPending} /> : null}
               {canComplete ? <Button title="Complete treatment" variant="gold" icon="checkmark-done-outline" onPress={openDischarge} /> : null}
               {canCancel ? <Button title="Cancel plan" variant="danger" icon="close-circle-outline" onPress={() => { cancel.reset(); setCancelOpen(true); }} /> : null}
               {canDelete ? <Button title="Delete plan" variant="danger" icon="trash-outline" onPress={() => remove.mutate()} loading={remove.isPending} /> : null}

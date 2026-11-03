@@ -1,8 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 import { api } from "@/lib/api";
+import { useAction } from "@/lib/refresh";
 import { colors, space } from "@/theme";
 import { Sheet } from "./form";
 import { Button, ErrorBox, Field, Input, Muted, Row, Text } from "./ui";
@@ -70,7 +70,6 @@ export function PinBadge({ hasPin }: { hasPin?: boolean }) {
 
 /** Admin sheet to set / reset someone's app PIN (POST /users/:id/pin). Open by passing a user; null closes. */
 export function SetPinSheet({ user, onClose }: { user: { id: string; name: string; hasPin?: boolean } | null; onClose: () => void }) {
-  const qc = useQueryClient();
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
   const close = () => {
@@ -79,15 +78,7 @@ export function SetPinSheet({ user, onClose }: { user: { id: string; name: strin
     save.reset();
     onClose();
   };
-  const save = useMutation({
-    mutationFn: () => api.post(`/users/${user!.id}/pin`, { pin }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["users"] });
-      qc.invalidateQueries({ queryKey: ["therapists"] });
-      qc.invalidateQueries({ queryKey: ["therapist"] });
-      close();
-    },
-  });
+  const save = useAction(() => api.post(`/users/${user!.id}/pin`, { pin }), { refresh: ["staff"], onSuccess: () => close() });
   const problem = pinProblem(pin, confirm);
   return (
     <Sheet

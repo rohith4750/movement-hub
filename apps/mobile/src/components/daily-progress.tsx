@@ -2,15 +2,17 @@
  * Daily progress for a treatment plan: one row per day, newest first. A day without an entry
  * shows the last recorded values, muted and marked "carried forward", until a new entry changes them.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Pressable } from "react-native";
 import { Sheet } from "@/components/form";
 import { Badge, Button, Card, Chips, ErrorBox, Field, H2, Input, Loading, Muted, Row, Text } from "@/components/ui";
 import { api } from "@/lib/api";
 import { dayParts, today } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import { PROGRESS_STATUS_LABEL, type ProgressDay, type ProgressLog, type ProgressStatus } from "@/lib/types";
-import { colors, space } from "@/theme";
+import { colors } from "@/theme";
 
 const VISIBLE = 14;
 type StatusChoice = ProgressStatus | "NONE";
@@ -26,8 +28,7 @@ const shortDay = (d: string) => {
 const STATUS_BADGE: Record<ProgressStatus, string> = { IMPROVED: "COMPLETED", SAME: "SCHEDULED", WORSE: "CANCELLED" };
 
 export function DailyProgressCard({ planId, canRecord }: { planId: string; canRecord: boolean }) {
-  const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["progress-log", planId], queryFn: () => api.get<ProgressLog>(`/treatment-plans/${planId}/progress-log`) });
+  const q = useQuery({ queryKey: qk.progressLog(planId), queryFn: () => api.get<ProgressLog>(`/treatment-plans/${planId}/progress-log`) });
   const [showAll, setShowAll] = useState(false);
   const [editDay, setEditDay] = useState<string | null>(null);
   const [pain, setPain] = useState("");
@@ -49,19 +50,15 @@ export function DailyProgressCard({ planId, canRecord }: { planId: string; canRe
 
   const painOk = pain === "" || Number(pain) <= 10;
   const empty = pain === "" && status === "NONE" && !notes.trim();
-  const save = useMutation({
-    mutationFn: () =>
+  const save = useAction(
+    () =>
       api.put(`/treatment-plans/${planId}/progress-log/${editDay}`, {
         painScore: pain === "" ? null : Number(pain),
         status: status === "NONE" ? null : status,
         notes: notes.trim() || null,
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["progress-log", planId] });
-      qc.invalidateQueries({ queryKey: ["plan", planId] });
-      setEditDay(null);
-    },
-  });
+    { refresh: ["clinical"], onSuccess: () => setEditDay(null) },
+  );
 
   const days = log?.days ?? [];
   const shown = showAll ? days : days.slice(0, VISIBLE);

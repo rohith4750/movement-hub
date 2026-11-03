@@ -1,10 +1,10 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Switch, View } from "react-native";
 import { DobAgeFields, goBack, RegularPhysioField, RequireRole, SectionTitle, useOwnTherapistId } from "@/components/form";
 import { Button, Card, Chips, ErrorBox, Field, Input, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
+import { useAction } from "@/lib/refresh";
 import { colors, space } from "@/theme";
 
 type Gender = "MALE" | "FEMALE" | "OTHER";
@@ -43,7 +43,6 @@ export default function NewPatient() {
 }
 
 function NewPatientForm() {
-  const qc = useQueryClient();
   const [f, setF] = useState(EMPTY);
   const [gender, setGender] = useState<Gender>("FEMALE");
   const [consent, setConsent] = useState(true);
@@ -52,8 +51,8 @@ function NewPatientForm() {
   const primaryTherapistId = physio ?? ownTherapist;
   const set = (k: keyof typeof EMPTY) => (t: string) => setF((x) => ({ ...x, [k]: t }));
 
-  const save = useMutation({
-    mutationFn: () =>
+  const save = useAction(
+    () =>
       api.post<{ id: string }>("/patients", {
         firstName: f.firstName.trim(),
         lastName: f.lastName.trim() || undefined,
@@ -66,11 +65,8 @@ function NewPatientForm() {
         consentGiven: consent,
         address: f.line1.trim() ? { line1: f.line1.trim(), city: f.city.trim(), state: f.state.trim(), pincode: f.pincode.trim() } : undefined,
       }),
-    onSuccess: (p) => {
-      qc.invalidateQueries({ queryKey: ["patients"] });
-      router.replace({ pathname: "/patient/[id]", params: { id: p.id } });
-    },
-  });
+    { refresh: ["patients"], onSuccess: (p) => router.replace({ pathname: "/patient/[id]", params: { id: p.id } }) },
+  );
 
   const problem = problemOf(f);
 

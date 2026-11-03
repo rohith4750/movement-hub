@@ -1,15 +1,17 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useRef, useState } from "react";
 import { Pressable, Switch, View } from "react-native";
 import { emptyItem, emptyPlan, PainScale, PlanFields, PlanItemsEditor, planBody, planProblem, type PlanDraft, type PlanItemDraft } from "@/components/clinical-plan-form";
 import { DateField, goBack, RequireRole, SectionTitle } from "@/components/form";
-import { Button, Card, ErrorBox, Field, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
+import { Badge, Button, Card, ErrorBox, Field, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { fullName, label, time, today } from "@/lib/format";
-import type { Appointment } from "@/lib/types";
+import { date, dateTime, fullName, label, time, today } from "@/lib/format";
+import { PlanReplaceCancelled, withActivePlanCheck } from "@/lib/plan-activation";
+import { useAppointment, useConsultation, usePreviousAssessment } from "@/lib/queries";
+import { useAction } from "@/lib/refresh";
+import type { Appointment, Consultation } from "@/lib/types";
 import { colors, space } from "@/theme";
 
 export default function NewConsultation() {
@@ -24,7 +26,9 @@ export default function NewConsultation() {
 function ConsultationLoader() {
   const { appointmentId } = useLocalSearchParams<{ appointmentId?: string }>();
   const id = typeof appointmentId === "string" ? appointmentId : "";
-  const q = useQuery({ queryKey: ["appointment", id], queryFn: () => api.get<Appointment>(`/appointments/${id}`), enabled: !!id });
+  const q = useAppointment(id || undefined);
+  // A saved draft is reopened with everything filled in.
+  const existing = useConsultation(q.data?.consultation?.id);
   if (!id) {
     return (
       <Screen edges={["top", "bottom"]}>
@@ -33,32 +37,55 @@ function ConsultationLoader() {
       </Screen>
     );
   }
-  if (!q.data) {
+  const waiting = !q.data || (!!q.data.consultation && !existing.data);
+  if (waiting) {
+    const err = q.error ?? existing.error;
     return (
       <Screen edges={["top", "bottom"]}>
         <TopBar title="Consultation" onBack={() => goBack("/appointments")} />
-        {q.isLoading ? <Loading /> : <ErrorBox error={q.error} onRetry={() => q.refetch()} />}
+        {err ? <ErrorBox error={err} onRetry={() => (q.error ? q.refetch() : existing.refetch())} /> : <Loading />}
       </Screen>
     );
   }
-  return <ConsultationForm appt={q.data} />;
+  // Keyed so a different draft never reuses stale form state.
+  return <ConsultationForm key={existing.data?.id ?? "new"} appt={q.data!} draft={existing.data ?? null} />;
 }
 
 type Pair = { a: string; b: string };
+const str = (v: string | null | undefined) => v ?? "";
+const pairs = (o: Record<string, string> | null | undefined): Pair[] => Object.entries(o ?? {}).map(([k, v]) => ({ a: k, b: String(v) }));
 
-function ConsultationForm({ appt }: { appt: Appointment }) {
-  const qc = useQueryClient();
+function ConsultationForm({ appt, draft }: { appt: Appointment; draft: Consultation | null }) {
   const user = useAuth((s) => s.user);
   const mine = user?.role === "SUPER_ADMIN" || user?.therapistId === appt.therapist.id;
   const isConsult = appt.type === "INITIAL_CONSULTATION" || appt.type === "FOLLOW_UP_CONSULTATION";
   const closed = ["CANCELLED", "NO_SHOW", "RESCHEDULED"].includes(appt.status);
+  const prev = usePreviousAssessment(appt.patient.id, appt.id);
+  const da = draft?.assessment;
 
-  const [c, setC] = useState({ chiefComplaint: "", symptoms: "", historyOfIllness: "", clinicalImpression: "", recommendations: "", followUpDate: "" });
-  const [a, setA] = useState({ painLocation: "", painType: "", aggravatingFactors: "", relievingFactors: "", posture: "", mobilityStatus: "", gait: "", observations: "" });
-  const [pain, setPain] = useState(5);
-  const [diagnosis, setDiagnosis] = useState("");
-  const [rom, setRom] = useState<Pair[]>([]);
-  const [tests, setTests] = useState<Pair[]>([]);
+  const [c, setC] = useState({
+    chiefComplaint: str(draft?.chiefComplaint),
+    symptoms: str(draft?.symptoms),
+    historyOfIllness: str(draft?.historyOfIllness),
+    clinicalImpression: str(draft?.clinicalImpression),
+    recommendations: str(draft?.recommendations),
+    followUpDate: draft?.followUpDate?.slice(0, 10) ?? "",
+  });
+  const [a, setA] = useState({
+    painLocation: str(da?.painLocation),
+    painType: str(da?.painType),
+    aggravatingFactors: str(da?.aggravatingFactors),
+    relievingFactors: str(da?.relievingFactors),
+    posture: str(da?.posture),
+    mobilityStatus: str(da?.mobilityStatus),
+    gait: str(da?.gait),
+    observations: str(da?.observations),
+  });
+  const [pain, setPain] = useState(da?.painScore ?? 5);
+  const [diagnosis, setDiagnosis] = useState(str(da?.diagnosis));
+  const [rom, setRom] = useState<Pair[]>(() => pairs(da?.rangeOfMotion));
+  const [tests, setTests] = useState<Pair[]>(() => (da?.specialTests ?? []).map((t) => ({ a: t.name, b: t.result })));
+  const [savedAt, setSavedAt] = useState<string | null>(draft?.status === "DRAFT" ? draft.updatedAt : null);
   const [makePlan, setMakePlan] = useState(true);
   const [plan, setPlan] = useState<PlanDraft>(emptyPlan);
   const [items, setItems] = useState<PlanItemDraft[]>(() => [emptyItem()]);
@@ -69,54 +96,67 @@ function ConsultationForm({ appt }: { appt: Appointment }) {
   const setAF = (k: keyof typeof a) => (t: string) => setA((x) => ({ ...x, [k]: t }));
   const clean = <T extends object>(o: T) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === "string" ? v.trim() : v]).filter(([, v]) => v !== "" && v !== undefined));
 
-  const save = useMutation({
-    mutationFn: async () => {
-      const assessment = {
-        ...clean(a),
-        painScore: pain,
-        rangeOfMotion: rom.some((r) => r.a.trim()) ? Object.fromEntries(rom.filter((r) => r.a.trim()).map((r) => [r.a.trim(), r.b.trim()])) : undefined,
-        specialTests: tests.some((t) => t.a.trim()) ? tests.filter((t) => t.a.trim()).map((t) => ({ name: t.a.trim(), result: t.b.trim() })) : undefined,
-        diagnosis: diagnosis.trim() || undefined,
-      };
+  /** Save the notes + assessment (create or update). Returns the consultation id. */
+  const persist = async (asDraft: boolean) => {
+    const assessment = {
+      ...clean(a),
+      painScore: pain,
+      rangeOfMotion: rom.some((r) => r.a.trim()) ? Object.fromEntries(rom.filter((r) => r.a.trim()).map((r) => [r.a.trim(), r.b.trim()])) : undefined,
+      specialTests: tests.some((t) => t.a.trim()) ? tests.filter((t) => t.a.trim()).map((t) => ({ name: t.a.trim(), result: t.b.trim() })) : undefined,
+      diagnosis: diagnosis.trim() || undefined,
+    };
+    // Create, or update if a draft (or an earlier attempt) already saved it.
+    const current = await api.get<Appointment>(`/appointments/${appt.id}`);
+    let consultationId = current.consultation?.id;
+    if (consultationId) {
+      await api.patch(`/consultations/${consultationId}`, { ...clean(c), finalize: !asDraft });
+      await api.put(`/consultations/${consultationId}/assessment`, assessment);
+    } else {
+      consultationId = (await api.post<{ id: string }>("/consultations", { appointmentId: appt.id, ...clean(c), assessment, draft: asDraft })).id;
+    }
+    return { consultationId, current };
+  };
 
-      // 1. Consultation — create, or update if an earlier attempt already saved it.
-      const current = await api.get<Appointment>(`/appointments/${appt.id}`);
-      let consultationId = current.consultation?.id;
-      if (consultationId) {
-        await api.patch(`/consultations/${consultationId}`, clean(c));
-        await api.put(`/consultations/${consultationId}/assessment`, assessment);
-      } else {
-        consultationId = (await api.post<{ id: string }>("/consultations", { appointmentId: appt.id, ...clean(c), assessment })).id;
-      }
+  const saveDraft = useAction(() => persist(true), {
+    refresh: ["clinical"],
+    onSuccess: () => setSavedAt(new Date().toISOString()),
+  });
 
-      // 2. Treatment plan — owned by this appointment's physiotherapist, created already active.
+  const save = useAction(
+    async () => {
+      const { consultationId, current } = await persist(false);
+
+      // Treatment plan — owned by this appointment's physiotherapist, created already active.
+      // If the patient already has an active plan, ask before replacing it.
       let planId = createdPlanId.current;
       if (makePlan && !planId) {
-        const p = await api.post<{ id: string }>("/treatment-plans", {
-          // Plan diagnosis defaults to the assessment's diagnosis when left empty.
-          ...planBody({ ...plan, diagnosis: plan.diagnosis.trim() || diagnosis }, items),
-          patientId: current.patient.id,
-          consultationId,
-          therapistId: current.therapist.id,
-          activate: true,
-        });
+        const p = await withActivePlanCheck((replaceActive) =>
+          api.post<{ id: string }>("/treatment-plans", {
+            // Plan diagnosis defaults to the assessment's diagnosis when left empty.
+            ...planBody({ ...plan, diagnosis: plan.diagnosis.trim() || diagnosis }, items),
+            patientId: current.patient.id,
+            consultationId,
+            therapistId: current.therapist.id,
+            activate: true,
+            replaceActive,
+          }),
+        );
         planId = createdPlanId.current = p.id;
       }
 
-      // 3. Close the visit.
+      // Close the visit.
       if (current.status !== "COMPLETED") await api.patch(`/appointments/${appt.id}/complete`);
       return { planId, patientId: current.patient.id };
     },
-    onSuccess: ({ planId, patientId }) => {
-      qc.invalidateQueries({ queryKey: ["appointments"] });
-      qc.invalidateQueries({ queryKey: ["appointment", appt.id] });
-      qc.invalidateQueries({ queryKey: ["patient", patientId] });
-      qc.invalidateQueries({ queryKey: ["plans"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-      if (planId) router.replace({ pathname: "/plan/[id]", params: { id: planId } });
-      else router.replace({ pathname: "/patient/[id]", params: { id: patientId } });
+    {
+      refresh: ["clinical", "appointments"],
+      onSuccess: ({ planId, patientId }) => {
+        if (planId) router.replace({ pathname: "/plan/[id]", params: { id: planId } });
+        else router.replace({ pathname: "/patient/[id]", params: { id: patientId } });
+      },
     },
-  });
+  );
+  const saveError = save.error instanceof PlanReplaceCancelled ? null : save.error;
 
   const problem = !mine
     ? `This consultation belongs to ${appt.therapist.user.name}.`
@@ -136,6 +176,15 @@ function ConsultationForm({ appt }: { appt: Appointment }) {
         <Text style={{ color: colors.gold300 }}>{appt.patient.patientCode} · {label(appt.type)} · {time(appt.startAt)}</Text>
         <Text style={{ color: colors.navy100, fontSize: 12 }}>{appt.appointmentNo} · {appt.therapist.user.name}</Text>
       </Card>
+
+      {savedAt ? (
+        <Row gap={6}>
+          <Badge status="DRAFT" text="Draft" />
+          <Muted style={{ fontSize: 12 }}>Saved {dateTime(savedAt)}. Finish it to complete the visit.</Muted>
+        </Row>
+      ) : null}
+
+      {prev.data ? <PreviousAssessment c={prev.data} currentPain={pain} /> : null}
 
       <Card style={{ gap: space.md }}>
         <SectionTitle>Consultation</SectionTitle>
@@ -185,10 +234,63 @@ function ConsultationForm({ appt }: { appt: Appointment }) {
         </Field>
       </Card>
 
-      <ErrorBox error={save.error} />
+      <ErrorBox error={saveError ?? saveDraft.error} />
+      {save.error instanceof PlanReplaceCancelled ? (
+        <Muted style={{ fontSize: 12, color: colors.warning }}>Kept the current plan. Turn off “Create treatment plan now” to finish without a new plan.</Muted>
+      ) : null}
       {problem ? <Muted style={{ fontSize: 12, color: colors.warning }}>{problem}</Muted> : null}
-      <Button title={makePlan ? "Save consultation & activate plan" : "Save consultation"} icon="checkmark-done-outline" onPress={() => save.mutate()} disabled={!!problem} loading={save.isPending} />
+      <Button
+        title={makePlan ? "Finish consultation & activate plan" : "Finish consultation"}
+        icon="checkmark-done-outline"
+        onPress={() => save.mutate()}
+        disabled={!!problem || saveDraft.isPending}
+        loading={save.isPending}
+      />
+      {!closed && mine && isConsult ? (
+        <Button
+          title="Save as draft"
+          variant="ghost"
+          icon="document-outline"
+          onPress={() => saveDraft.mutate()}
+          disabled={save.isPending}
+          loading={saveDraft.isPending}
+        />
+      ) : null}
+      <Muted style={{ fontSize: 12, textAlign: "center" }}>A draft keeps the notes and assessment; the plan details stay on this screen until you finish.</Muted>
     </Screen>
+  );
+}
+
+/** The patient's last finished assessment, to compare against today's. */
+function PreviousAssessment({ c, currentPain }: { c: Consultation; currentPain: number }) {
+  const [open, setOpen] = useState(false);
+  const pa = c.assessment;
+  const change = pa ? currentPain - pa.painScore : 0;
+  return (
+    <Card style={{ gap: space.xs, backgroundColor: colors.navy50 }}>
+      <Pressable onPress={() => setOpen((o) => !o)} accessibilityRole="button" accessibilityState={{ expanded: open }}>
+        <Row style={{ justifyContent: "space-between" }}>
+          <Text weight="bold" style={{ color: colors.navy700 }}>Previous assessment</Text>
+          <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.navy600} />
+        </Row>
+        <Muted style={{ fontSize: 12 }}>
+          {date(c.createdAt)} · {c.therapist.user.name}
+          {pa ? ` · pain ${pa.painScore}/10${change ? ` (now ${change > 0 ? "+" : ""}${change})` : ""}` : ""}
+        </Muted>
+      </Pressable>
+      {open ? (
+        <View style={{ gap: 2 }}>
+          {c.chiefComplaint ? <KeyValue k="Complaint" v={c.chiefComplaint} /> : null}
+          {pa?.diagnosis ? <KeyValue k="Diagnosis" v={pa.diagnosis} /> : null}
+          {pa?.painLocation ? <KeyValue k="Pain location" v={pa.painLocation} /> : null}
+          {pa?.posture ? <KeyValue k="Posture" v={pa.posture} /> : null}
+          {pa?.gait ? <KeyValue k="Gait" v={pa.gait} /> : null}
+          {Object.entries(pa?.rangeOfMotion ?? {}).map(([k, v]) => <KeyValue key={k} k={`ROM · ${k}`} v={String(v)} />)}
+          {(pa?.specialTests ?? []).map((t) => <KeyValue key={t.name} k={`Test · ${t.name}`} v={t.result} />)}
+          {c.recommendations ? <Muted style={{ fontSize: 12 }}>Recommendations: {c.recommendations}</Muted> : null}
+        </View>
+      ) : null}
+    </Card>
   );
 }
 

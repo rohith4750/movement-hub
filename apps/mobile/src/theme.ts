@@ -74,4 +74,10 @@ export const statusColors: Record<string, { bg: string; fg: string }> = {
   PENDING: { bg: colors.warningBg, fg: colors.warning },
   FAILED: { bg: colors.dangerBg, fg: colors.danger },
   MISSED: { bg: colors.dangerBg, fg: colors.danger },
+  // Patient category and visit source labels
+  NEW: { bg: "#EFF6FF", fg: "#1D4ED8" },
+  REGULAR: { bg: colors.successBg, fg: colors.success },
+  OCCASIONAL: { bg: "#F1F5F9", fg: "#475569" },
+  WALK_IN: { bg: colors.gold100, fg: colors.gold700 },
+  FINAL: { bg: colors.successBg, fg: colors.success },
 };

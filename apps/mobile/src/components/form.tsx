@@ -4,14 +4,13 @@
  */
 import Ionicons from "@expo/vector-icons/Ionicons";
 import RNDateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
-import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { api } from "@/lib/api";
 import { hasRole, useAuth, type Role } from "@/lib/auth";
 import { ageFrom, date as fmtDate, dobFromAge } from "@/lib/format";
+import { useTherapists } from "@/lib/queries";
 import { colors, radius, shadow, space } from "@/theme";
 import { Button, Caption, Empty, Field, H2, Input, Muted, Row, Screen, Text, TopBar } from "./ui";
 
@@ -372,7 +371,7 @@ export const useOwnTherapistId = () => useAuth((s) => (s.user?.role === "PHYSIOT
 
 /** "Regular physiotherapist" picker. Value "" = none. */
 export function RegularPhysioField({ value, onChange }: { value: string; onChange: (id: string) => void }) {
-  const therapists = useQuery({ queryKey: ["therapists", false], queryFn: () => api.get<{ id: string; user: { name: string } }[]>("/therapists") });
+  const therapists = useTherapists();
   return (
     <SelectField
       label="Regular physiotherapist"

@@ -1,10 +1,24 @@
 export type AppointmentType = "INITIAL_CONSULTATION" | "FOLLOW_UP_CONSULTATION" | "THERAPY_SESSION" | "HOME_VISIT";
+/** Booked ahead, or a patient who walked in. */
+export type AppointmentSource = "SCHEDULED" | "WALK_IN";
+/** NEW: no completed visit yet · REGULAR: ongoing care · OCCASIONAL: has visited, no ongoing care. */
+export type PatientCategory = "NEW" | "REGULAR" | "OCCASIONAL";
+
+export const CATEGORY_LABEL: Record<PatientCategory, string> = { NEW: "New", REGULAR: "Regular", OCCASIONAL: "Occasional" };
+
+export interface VisitStats {
+  completedVisits: number;
+  lastVisitAt: string | null;
+  nextVisitAt: string | null;
+  category: PatientCategory;
+}
 
 export interface Appointment {
   id: string;
   appointmentNo: string;
   type: AppointmentType;
   status: string;
+  source?: AppointmentSource;
   startAt: string;
   endAt: string;
   notes: string | null;
@@ -19,6 +33,9 @@ export interface Appointment {
 export interface Dashboard {
   totalPatients: number;
   newPatientsMonth: number;
+  regularPatients: number;
+  walkInsToday: number;
+  scheduledToday: number;
   todayAppointments: number;
   pendingAppointments: number;
   completedSessionsToday: number;
@@ -40,6 +57,7 @@ export interface PatientListItem {
   treatmentPlans?: { id: string; title: string }[];
   primaryTherapistId?: string | null;
   primaryTherapist?: { id: string; colorTag: string | null; user: { name: string } } | null;
+  visits?: VisitStats;
 }
 
 export interface PatientDetail {
@@ -61,6 +79,7 @@ export interface PatientDetail {
   packages: { id: string; status: string; remainingSessions: number; totalSessions: number; expiryDate: string; package: { name: string } }[];
   treatmentPlans: { id: string; title: string; status: string; prescribedSessions: number; createdAt: string }[];
   appointments: { id: string; appointmentNo: string; type: string; status: string; startAt: string; therapist: { user: { name: string } } }[];
+  visits?: VisitStats;
 }
 
 export interface Therapist {
@@ -173,8 +192,12 @@ export interface AvailabilityRow {
   therapistId: string;
   therapistName: string;
   colorTag: string | null;
+  onLeave?: boolean;
   specializations: string[];
   slots: { slotId: string; startAt: string; endAt: string }[];
+  /** Booked or blocked times, for the Available / Booked / Unavailable legend. */
+  taken?: { startAt: string; endAt: string; status: "BOOKED" | "BLOCKED" }[];
+  counts?: { free: number; booked: number; blocked: number };
 }
 
 export interface Me {
@@ -206,4 +229,135 @@ export interface ProgressLog {
   days: ProgressDay[]; // newest first
   entries: number;
   editable: boolean;
+}
+
+/* ─────────────── Day planner ─────────────── */
+
+export interface PlannerTherapist {
+  id: string;
+  name: string;
+  colorTag: string | null;
+  homeVisits: boolean;
+  onLeave: boolean;
+  slots: { total: number; free: number; booked: number; blocked: number };
+  full: boolean;
+}
+
+export interface PlannerSlot {
+  id: string;
+  therapistId: string;
+  startAt: string;
+  endAt: string;
+  status: "AVAILABLE" | "BOOKED" | "BLOCKED";
+}
+
+export interface PlannerAppointment {
+  id: string;
+  appointmentNo: string;
+  type: AppointmentType;
+  status: string;
+  source: AppointmentSource;
+  startAt: string;
+  endAt: string;
+  therapistId: string;
+  patient: { id: string; patientCode: string; firstName: string; lastName: string | null; phone: string };
+  treatmentPlan: { id: string; title: string; planNo: string } | null;
+}
+
+/** A patient in ongoing care who still needs a visit on the planned day. */
+export interface PlannerCandidate {
+  patient: { id: string; patientCode: string; firstName: string; lastName: string | null; phone: string };
+  category: PatientCategory;
+  lastVisitAt: string | null;
+  completedVisits: number;
+  plan: { id: string; planNo: string; title: string; frequencyPerWeek: number; prescribedSessions: number; sessionsBooked: number; full: boolean } | null;
+  package: { id: string; name: string; remaining: number; expiryDate: string } | null;
+  type: "THERAPY_SESSION" | "FOLLOW_UP_CONSULTATION";
+  therapistId: string | null;
+  therapistOnLeave: boolean;
+  usualTime: string | null;
+  suggestedSlotId: string | null;
+  suggestedIsUsual: boolean;
+}
+
+export interface PlannerDay {
+  date: string;
+  therapists: PlannerTherapist[];
+  slots: PlannerSlot[];
+  appointments: PlannerAppointment[];
+  toPlan: PlannerCandidate[];
+}
+
+export interface PlannerBookResult {
+  booked: number;
+  failed: number;
+  results: { patientId: string; slotId: string; ok: boolean; appointmentId?: string; appointmentNo?: string; error?: string; code?: string }[];
+}
+
+/* ─────────────── Consultations ─────────────── */
+
+export interface Assessment {
+  id: string;
+  painScore: number;
+  painLocation: string | null;
+  painType: string | null;
+  aggravatingFactors: string | null;
+  relievingFactors: string | null;
+  posture: string | null;
+  rangeOfMotion: Record<string, string> | null;
+  muscleStrength: Record<string, string> | null;
+  specialTests: { name: string; result: string }[] | null;
+  mobilityStatus: string | null;
+  gait: string | null;
+  observations: string | null;
+  diagnosis: string | null;
+}
+
+export interface Consultation {
+  id: string;
+  appointmentId: string;
+  status: "DRAFT" | "FINAL";
+  finalizedAt: string | null;
+  isFollowUp: boolean;
+  chiefComplaint: string | null;
+  symptoms: string | null;
+  historyOfIllness: string | null;
+  clinicalImpression: string | null;
+  recommendations: string | null;
+  followUpDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  assessment: Assessment | null;
+  therapist: { id: string; user: { name: string } };
+  treatmentPlan: { id: string; planNo: string; title: string; status: string } | null;
+}
+
+export interface ConsultationHistoryEntry {
+  id: string;
+  at: string;
+  by: string;
+  role: string | null;
+  part: "Notes" | "Assessment";
+  action: "Written" | "Edited";
+  fields: string[];
+}
+
+/** Sent with 409 ACTIVE_PLAN_EXISTS when activating a second plan for a patient. */
+export interface ActivePlanConflict {
+  planId: string;
+  planNo: string;
+  title: string;
+  upcomingVisits: number;
+}
+
+/* ─────────────── Reports ─────────────── */
+
+export interface MonthlyRow {
+  month: string; // YYYY-MM
+  visits: number;
+  completed: number;
+  walkIns: number;
+  scheduled: number;
+  noShows: number;
+  newPatients: number;
 }

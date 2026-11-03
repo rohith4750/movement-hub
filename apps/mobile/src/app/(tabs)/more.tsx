@@ -16,7 +16,8 @@ const SECTIONS: { title: string; items: Item[] }[] = [
     title: "Front desk",
     items: [
       { href: "/patient/new", title: "Add patient", subtitle: "Add a new patient", icon: "person-add-outline", roles: ["ADMIN", "RECEPTIONIST"] },
-      { href: "/book", title: "Book appointment", subtitle: "New visit for a patient", icon: "add-circle-outline", roles: ["ADMIN", "RECEPTIONIST"] },
+      { href: "/planner", title: "Day planner", subtitle: "Plan tomorrow: book regular patients, move visits", icon: "clipboard-outline", roles: ["ADMIN", "RECEPTIONIST"] },
+      { href: "/book", title: "Book appointment", subtitle: "New visit or walk-in", icon: "add-circle-outline", roles: ["ADMIN", "RECEPTIONIST"] },
       { href: "/schedule", title: "Schedule", subtitle: "Day grid for all physiotherapists; block slots", icon: "grid-outline", roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST"] },
       { href: "/home-visits", title: "Home visits", subtitle: "Visits at patients' homes; GPS check-in", icon: "home-outline", roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST"] },
     ],

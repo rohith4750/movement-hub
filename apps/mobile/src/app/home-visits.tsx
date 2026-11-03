@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import * as Location from "expo-location";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -10,6 +10,8 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
 import { addDays, date, fullName, inr, time, today } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import { colors, space } from "@/theme";
 
 interface Visit {
@@ -52,21 +54,20 @@ async function currentPosition(): Promise<{ latitude?: number; longitude?: numbe
 }
 
 function VisitList() {
-  const qc = useQueryClient();
   const user = useAuth((s) => s.user);
   const canBook = hasRole(user, "ADMIN", "RECEPTIONIST");
   const [day, setDay] = useState(today());
   const [notice, setNotice] = useState<string | null>(null);
   const q = useQuery({
-    queryKey: ["home-visits", day],
+    queryKey: qk.homeVisits(day),
     queryFn: () => api.page<Visit>("/home-visits", { date: day, limit: 100 }),
     select: (r) => r.data,
   });
 
-  const step = useMutation({
+  const step = useAction(
     // `gps` is true only for the assigned physio. A Super Admin updating on their behalf never
     // sends a position: the admin's location is not the visit's location.
-    mutationFn: async ({ v, action, gps }: { v: Visit; action: Step; gps: boolean }) => {
+    async ({ v, action, gps }: { v: Visit; action: Step; gps: boolean }) => {
       if (action === "check-out" && !(await confirm("Check out and complete?", `This completes the home visit for ${fullName(v.patient)}.`, "Complete"))) return null;
       let body: { latitude?: number; longitude?: number } = {};
       let note: string | undefined;
@@ -78,13 +79,8 @@ function VisitList() {
       await api.post(`/home-visits/${v.id}/${action}`, body);
       return { note };
     },
-    onSuccess: (r) => {
-      setNotice(r?.note ?? null);
-      qc.invalidateQueries({ queryKey: ["home-visits"] });
-      qc.invalidateQueries({ queryKey: ["appointments"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
-  });
+    { refresh: ["appointments"], onSuccess: (r) => setNotice(r?.note ?? null) },
+  );
 
   const openMap = (v: Visit) => {
     const url = v.address.latitude && v.address.longitude

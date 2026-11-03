@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { AppState, Platform, type AppStateStatus } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth";
+import { usePlannerStore } from "@/lib/planner-store";
 import { ApiError } from "@/lib/api";
 import { colors } from "@/theme";
 
@@ -68,9 +69,12 @@ export default function RootLayout() {
     return () => sub.remove();
   }, []);
 
-  // Clear cached data when the user signs out so the next person never sees it.
+  // Clear cached data and drafts when the user signs out so the next person never sees them.
   useEffect(() => {
-    if (status === "signedOut") queryClient.clear();
+    if (status === "signedOut") {
+      queryClient.clear();
+      usePlannerStore.setState({ days: {} });
+    }
   }, [status, queryClient]);
 
   // Redirect to /login when signed out, regardless of which screen the user is on.

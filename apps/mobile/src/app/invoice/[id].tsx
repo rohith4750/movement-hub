@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
@@ -9,6 +9,8 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
 import { date, dateTime, fullName, inr, label } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import type { InvoiceDetail } from "@/lib/types";
 import { colors, space } from "@/theme";
 
@@ -24,24 +26,17 @@ export default function InvoiceScreen() {
 
 function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const qc = useQueryClient();
   const user = useAuth((s) => s.user);
-  const q = useQuery({ queryKey: ["invoice", id], queryFn: () => api.get<InvoiceDetail>(`/invoices/${id}`), enabled: !!id });
+  const q = useQuery({ queryKey: qk.invoice(id), queryFn: () => api.get<InvoiceDetail>(`/invoices/${id}`), enabled: !!id });
   const inv = q.data;
   const half = inv ? Number(inv.gstPercent) / 2 : 0;
-
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["invoice", id] });
-    qc.invalidateQueries({ queryKey: ["invoices"] });
-    qc.invalidateQueries({ queryKey: ["dashboard"] });
-  };
 
   /* ── record payment ── */
   const [method, setMethod] = useState<Method>("UPI");
   const [amount, setAmount] = useState("");
   const [ref, setRef] = useState("");
-  const pay = useMutation({
-    mutationFn: async () => {
+  const pay = useAction(
+    async () => {
       const value = amount ? Number(amount) : Number(inv!.dueAmount);
       if (!(value > 0)) throw new Error("Enter a valid amount");
       if (value > Number(inv!.dueAmount)) throw new Error(`Amount can't be more than the balance due (${inr(inv!.dueAmount)})`);
@@ -49,30 +44,31 @@ function InvoiceDetailScreen() {
       if (!ok) return null;
       return api.post("/payments", { invoiceId: id, method, amount: value, referenceNo: ref.trim() || undefined });
     },
-    onSuccess: (r) => {
-      if (!r) return;
-      setAmount("");
-      setRef("");
-      refresh();
+    {
+      refresh: ["billing"],
+      onSuccess: (r) => {
+        if (!r) return;
+        setAmount("");
+        setRef("");
+      },
     },
-  });
+  );
 
   /* ── issue / cancel ── */
-  const issue = useMutation({
-    mutationFn: async () => {
+  const issue = useAction(
+    async () => {
       const ok = await confirm("Issue invoice?", "Once issued, the invoice can't be edited. Payments can then be recorded.", "Issue");
       return ok ? api.post(`/invoices/${id}/issue`) : null;
     },
-    onSuccess: (r) => r && refresh(),
-  });
+    { refresh: ["billing"] },
+  );
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState("");
-  const cancel = useMutation({
-    mutationFn: () => api.post(`/invoices/${id}/cancel`, { reason: reason.trim() }),
+  const cancel = useAction(() => api.post(`/invoices/${id}/cancel`, { reason: reason.trim() }), {
+    refresh: ["billing"],
     onSuccess: () => {
       setCancelOpen(false);
       setReason("");
-      refresh();
     },
   });
 

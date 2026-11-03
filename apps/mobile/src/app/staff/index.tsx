@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
@@ -9,6 +9,8 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
 import { dateTime, label } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import { colors, radius, space } from "@/theme";
 
 interface Staff { id: string; name: string; email: string | null; phone: string; role: string; isActive: boolean; lastLoginAt: string | null; hasPin: boolean }
@@ -22,23 +24,18 @@ export default function StaffScreen() {
 }
 
 function StaffList() {
-  const qc = useQueryClient();
   const me = useAuth((s) => s.user);
   const isSuper = me?.role === "SUPER_ADMIN";
   const [pinFor, setPinFor] = useState<Staff | null>(null);
-  const q = useQuery({ queryKey: ["users"], queryFn: () => api.page<Staff>("/users", { limit: 100 }) });
+  const q = useQuery({ queryKey: qk.users(), queryFn: () => api.page<Staff>("/users", { limit: 100 }) });
 
-  const remove = useMutation({
-    mutationFn: async (u: Staff) => {
+  const remove = useAction(
+    async (u: Staff) => {
       if (!(await confirm(`Delete ${u.name}?`, `${u.name} (${label(u.role)}) will be signed out of the web and app and can no longer sign in. Past records stay for history.`, "Delete", true))) return null;
       return api.del(`/users/${u.id}`);
     },
-    onSuccess: (r) => {
-      if (!r) return;
-      qc.invalidateQueries({ queryKey: ["users"] });
-      qc.invalidateQueries({ queryKey: ["therapists"] });
-    },
-  });
+    { refresh: ["staff"] },
+  );
 
   const rows = q.data?.data ?? [];
   const withoutPin = rows.filter((u) => !u.hasPin).length;

@@ -8,6 +8,7 @@ import { Badge, Button, Card, Chips, Empty, ErrorBox, Input, Loading, Muted, Row
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { date, fullName, inr } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
 import { colors, radius, space } from "@/theme";
 
 type Filter = "due" | "DRAFT" | "PAID" | "CANCELLED" | "all";
@@ -48,7 +49,7 @@ function BillingList() {
   // "To collect" spans two statuses, so it is fetched unfiltered and narrowed on the device.
   const apiStatus = filter === "due" || filter === "all" ? undefined : filter;
   const q = useQuery({
-    queryKey: ["invoices", "list", apiStatus ?? "any", debounced],
+    queryKey: qk.invoices.list({ status: apiStatus ?? "any", search: debounced }),
     queryFn: () => api.page<InvoiceRow>("/invoices", { status: apiStatus, search: debounced || undefined, limit: 100 }),
   });
   const rows = (q.data?.data ?? []).filter((i) => (filter === "due" ? DUE.includes(i.status) : true));

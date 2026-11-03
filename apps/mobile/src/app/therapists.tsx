@@ -6,6 +6,7 @@ import { RequireRole, goBack } from "@/components/form";
 import { Button, Empty, ErrorBox, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
+import { qk } from "@/lib/query-keys";
 import { colors, radius, shadow, space } from "@/theme";
 
 interface TherapistRow {
@@ -31,7 +32,7 @@ function Therapists() {
   const user = useAuth((s) => s.user);
   const isAdmin = hasRole(user, "ADMIN");
   const q = useQuery({
-    queryKey: ["therapists", "admin-list", isAdmin],
+    queryKey: qk.therapists.list({ admin: isAdmin }),
     queryFn: () => api.get<TherapistRow[]>("/therapists", { includeInactive: isAdmin || undefined }),
   });
   const noPin = isAdmin ? (q.data ?? []).filter((t) => t.isActive && !t.user.hasPin).length : 0;

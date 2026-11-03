@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -9,6 +9,8 @@ import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
 import { addDays, date, dayParts, fullName, label, time, today } from "@/lib/format";
+import { qk } from "@/lib/query-keys";
+import { useAction } from "@/lib/refresh";
 import { colors, radius, space } from "@/theme";
 
 interface CalSlot {
@@ -41,25 +43,20 @@ export default function Schedule() {
 }
 
 function ScheduleDay() {
-  const qc = useQueryClient();
   const user = useAuth((s) => s.user);
   const canBlock = hasRole(user, "ADMIN", "RECEPTIONIST");
   const [day, setDay] = useState(today());
   const [onlyMine, setOnlyMine] = useState(user?.role === "PHYSIOTHERAPIST");
-  const cal = useQuery({ queryKey: ["calendar", "day", day], queryFn: () => api.get<Calendar>("/calendar", { view: "day", date: day }) });
+  const cal = useQuery({ queryKey: qk.calendar(day), queryFn: () => api.get<Calendar>("/calendar", { view: "day", date: day }) });
 
-  const toggle = useMutation({
-    mutationFn: async (s: CalSlot) => {
+  const toggle = useAction(
+    async (s: CalSlot) => {
       const block = s.status !== "BLOCKED";
       if (block && !(await confirm("Block this slot?", `${time(s.startAt)} will not be bookable.`, "Block"))) return null;
       return api.patch(`/slots/${s.id}`, { status: block ? "BLOCKED" : "AVAILABLE" });
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["calendar"] });
-      qc.invalidateQueries({ queryKey: ["availability"] });
-      qc.invalidateQueries({ queryKey: ["availability-summary"] });
-    },
-  });
+    { refresh: ["schedule"] },
+  );
 
   const therapists = (cal.data?.therapists ?? []).filter((t) => !onlyMine || t.id === user?.therapistId);
   const p = dayParts(day);

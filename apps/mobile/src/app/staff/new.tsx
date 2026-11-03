@@ -1,10 +1,10 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
 import { PinFields, pinProblem } from "@/components/admin-pin";
 import { RequireRole, SectionTitle, goBack } from "@/components/form";
 import { Button, Card, ErrorBox, Field, Input, Muted, Screen, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
+import { useAction } from "@/lib/refresh";
 import { colors, space } from "@/theme";
 
 
@@ -17,17 +17,13 @@ export default function NewStaffScreen() {
 }
 
 function NewStaff() {
-  const qc = useQueryClient();
   const [f, setF] = useState({ name: "", email: "", phone: "", password: "" });
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
 
-  const create = useMutation({
-    mutationFn: () => api.post("/users", { name: f.name.trim(), email: f.email.trim(), phone: f.phone.trim(), role: "SUPER_ADMIN", password: f.password, pin }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["users"] });
-      router.replace("/staff");
-    },
+  const create = useAction(() => api.post("/users", { name: f.name.trim(), email: f.email.trim(), phone: f.phone.trim(), role: "SUPER_ADMIN", password: f.password, pin }), {
+    refresh: ["staff"],
+    onSuccess: () => router.replace("/staff"),
   });
 
   const missing = f.name.trim().length < 2
