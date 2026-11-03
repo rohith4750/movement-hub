@@ -311,5 +311,5 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
   badge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.sm, borderWidth: 1, alignSelf: "flex-start" },
   errorBox: { backgroundColor: colors.dangerBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: colors.danger },
-  emptyIcon: { width: 60, height: 60, borderRadius: 4, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center" },
+  emptyIcon: { width: 60, height: 60, borderRadius: 12, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center" },
 });

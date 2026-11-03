@@ -20,16 +20,38 @@ export interface Paged<T> {
 const TIMEOUT_MS = 20_000;
 let refreshing: Promise<boolean> | null = null;
 
-async function fetchWithTimeout(url: string, init: RequestInit) {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function fetchOnce(url: string, init: RequestInit) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
     return await fetch(url, { ...init, signal: ctrl.signal });
   } catch (e) {
     const aborted = e instanceof Error && e.name === "AbortError";
-    throw new ApiError(0, "NETWORK", aborted ? "The server took too long to respond. Please try again." : "Can't reach Movement Hub. Check your internet connection.");
+    throw new ApiError(0, "NETWORK", aborted ? "The server took too long to respond. Please try again." : "Can't reach Movement Hub. Check your internet connection.", aborted ? "TIMEOUT" : "DROPPED");
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * A request that fails instantly ("network request failed") is usually a dropped connection (a stale
+ * socket after the app was backgrounded or the Wi-Fi/mobile-data handover), not a real outage.
+ * Retry quietly before showing an error: reads twice, writes once. Timeouts are never retried, because a
+ * slow server may already have processed the request.
+ */
+async function fetchWithTimeout(url: string, init: RequestInit) {
+  // Writes get one quiet retry: a dropped connection (e.g. Android reusing a dead socket) fails before the
+  // server sees the request, so this is what makes "Register & continue" work first time.
+  const retries = (init.method ?? "GET") === "GET" ? 2 : 1;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetchOnce(url, init);
+    } catch (e) {
+      if (attempt >= retries || !(e instanceof ApiError) || e.details !== "DROPPED") throw e;
+      await sleep(500 * (attempt + 1));
+    }
   }
 }
 

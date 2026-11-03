@@ -62,7 +62,7 @@ export function PinFields({ pin, confirm, onPin, onConfirm }: { pin: string; con
 /** Small PIN status pill. */
 export function PinBadge({ hasPin }: { hasPin?: boolean }) {
   return (
-    <View style={{ alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 4, borderWidth: 1, borderColor: hasPin ? colors.success : colors.warning, backgroundColor: hasPin ? colors.successBg : colors.warningBg }}>
+    <View style={{ alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12, borderWidth: 1, borderColor: hasPin ? colors.success : colors.warning, backgroundColor: hasPin ? colors.successBg : colors.warningBg }}>
       <Text weight="semibold" style={{ fontSize: 11, color: hasPin ? colors.success : colors.warning }}>{hasPin ? "App PIN ✓" : "No app PIN"}</Text>
     </View>
   );

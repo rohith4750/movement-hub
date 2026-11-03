@@ -59,7 +59,7 @@ const STEP_LABEL: Record<Step, string> = { patient: "Patient", visit: "Visit", d
 export default function Book() {
   const qc = useQueryClient();
   const user = useAuth((s) => s.user);
-  const params = useLocalSearchParams<{ reschedule?: string; patientId?: string; type?: string; walkIn?: string }>();
+  const params = useLocalSearchParams<{ reschedule?: string; patientId?: string; type?: string; walkIn?: string; therapistId?: string; date?: string }>();
   const rescheduleId = typeof params.reschedule === "string" ? params.reschedule : undefined;
   const fixedPatient = typeof params.patientId === "string" ? params.patientId : undefined;
   const [walkInChoice, setWalkIn] = useState(params.walkIn === "1");
@@ -73,8 +73,8 @@ export default function Book() {
   const [planChoice, setPlanChoice] = useState<string | null>(null);
   const [pkgChoice, setPkgChoice] = useState<string | null>(null);
   const [addressChoice, setAddressChoice] = useState<string | null>(null);
-  const [therapistChoice, setTherapistChoice] = useState<string | null>(null);
-  const [dayChoice, setDayChoice] = useState<string | null>(null);
+  const [therapistChoice, setTherapistChoice] = useState<string | null>(typeof params.therapistId === "string" ? params.therapistId : null);
+  const [dayChoice, setDayChoice] = useState<string | null>(typeof params.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : null);
   const [slot, setSlot] = useState<{ id: string; startAt: string; therapist: string; therapistId: string } | null>(null);
   const [repeat, setRepeat] = useState(false);
   const [repeatDays, setRepeatDays] = useState<Weekday[] | null>(null);
@@ -656,6 +656,7 @@ type Gender = "MALE" | "FEMALE" | "OTHER";
 function QuickPatientForm({ onCreated, onCancel }: { onCreated: (id: string) => void; onCancel: () => void }) {
   const [f, setF] = useState({ firstName: "", lastName: "", phone: "", dateOfBirth: "" });
   const [gender, setGender] = useState<Gender>("FEMALE");
+  const [patientType, setPatientType] = useState<"REGULAR" | "WALK_IN">("REGULAR");
   const ownTherapist = useOwnTherapistId();
   const [physio, setPhysio] = useState<string | null>(null);
   const primaryTherapistId = physio ?? ownTherapist;
@@ -665,6 +666,7 @@ function QuickPatientForm({ onCreated, onCancel }: { onCreated: (id: string) => 
         firstName: f.firstName.trim(),
         lastName: f.lastName.trim() || undefined,
         gender,
+        patientType,
         dateOfBirth: f.dateOfBirth || undefined,
         phone: f.phone.trim(),
         primaryTherapistId: primaryTherapistId || null,
@@ -681,6 +683,9 @@ function QuickPatientForm({ onCreated, onCancel }: { onCreated: (id: string) => 
         <View style={{ flex: 1 }}><Field label="Last name"><Input value={f.lastName} onChangeText={(t) => setF({ ...f, lastName: t })} /></Field></View>
       </Row>
       <Field label="Mobile *"><Input value={f.phone} onChangeText={(t) => setF({ ...f, phone: t })} keyboardType="phone-pad" placeholder="98765 43210" /></Field>
+      <Field label="Patient type *">
+        <Chips<"REGULAR" | "WALK_IN"> value={patientType} onChange={setPatientType} options={[{ value: "REGULAR", label: "Regular" }, { value: "WALK_IN", label: "Walk-in" }]} />
+      </Field>
       <Field label="Gender *">
         <Chips<Gender> value={gender} onChange={setGender} options={[{ value: "FEMALE", label: "Female" }, { value: "MALE", label: "Male" }, { value: "OTHER", label: "Other" }]} />
       </Field>

@@ -35,7 +35,7 @@ export const fonts = {
 };
 
 /** Every corner is 4px (circles — avatars, dots — set their own size/2). */
-export const radius = { sm: 4, md: 4, lg: 4, xl: 4, pill: 4 };
+export const radius = { sm: 12, md: 12, lg: 12, xl: 12, pill: 12 };
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
 
 export const shadow = {

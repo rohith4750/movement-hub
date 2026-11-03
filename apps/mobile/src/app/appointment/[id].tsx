@@ -34,7 +34,8 @@ export default function AppointmentDetail() {
   const a = q.data;
 
   const isAdmin = hasRole(user, "ADMIN");
-  const isFrontDesk = hasRole(user, "ADMIN", "RECEPTIONIST");
+  // No separate front desk: physiotherapists also reschedule, cancel and mark no-shows (the API already allows it).
+  const isFrontDesk = hasRole(user, "ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST");
   const isTreating = user?.role === "SUPER_ADMIN" || (user?.role === "PHYSIOTHERAPIST" && user.therapistId === a?.therapist.id);
   const canClinical = isAdmin || isTreating;
   const open = a ? ["SCHEDULED", "CONFIRMED"].includes(a.status) : false;

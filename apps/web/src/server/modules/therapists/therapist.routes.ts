@@ -46,20 +46,17 @@ therapistRouter.get(
   handler(async (req, res) => {
     const query = q<z.infer<typeof listQuery>>(req);
     const list = await prisma.therapist.findMany({
-        where: {
-          user: { deletedAt: null },
-          isActive: query.includeInactive ? undefined : true,
-          isAvailableForHomeVisit: query.homeVisit,
-          ...(query.specializationId ? { specializations: { some: { specializationId: query.specializationId } } } : {}),
-        },
-        include,
-        orderBy: { createdAt: "asc" },
-      });
-    // PIN status only (never the hash), so admins can see who can use the mobile app.
-    const withPin = new Set(
-      (await prisma.user.findMany({ where: { id: { in: list.map((t) => t.userId) }, pinHash: { not: null } }, select: { id: true } })).map((u) => u.id),
-    );
-    ok(res, list.map((t) => ({ ...t, user: { ...t.user, hasPin: withPin.has(t.userId) } })));
+      where: {
+        user: { deletedAt: null },
+        isActive: query.includeInactive ? undefined : true,
+        isAvailableForHomeVisit: query.homeVisit,
+        ...(query.specializationId ? { specializations: { some: { specializationId: query.specializationId } } } : {}),
+      },
+      // pinHash is read only to report whether a PIN exists; it is never sent to the client.
+      include: { ...include, user: { select: { ...include.user.select, pinHash: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+    ok(res, list.map(({ user: { pinHash, ...user }, ...t }) => ({ ...t, user: { ...user, hasPin: !!pinHash } })));
   }),
 );
 

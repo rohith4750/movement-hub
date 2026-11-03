@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Alert, Platform, Pressable, StyleSheet, View } from "react-native";
 import { DateField, goBack, RequireRole } from "@/components/form";
 import { Badge, Button, Card, Empty, ErrorBox, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -49,10 +49,42 @@ function ScheduleDay() {
   const [onlyMine, setOnlyMine] = useState(user?.role === "PHYSIOTHERAPIST");
   const cal = useQuery({ queryKey: qk.calendar(day), queryFn: () => api.get<Calendar>("/calendar", { view: "day", date: day }) });
 
+  /** A free slot: book it (the usual reason to tap one) or block it. */
+  const freeSlotAction = (s: CalSlot, t: CalTherapist): Promise<"book" | "block" | null> =>
+    new Promise((resolve) => {
+      const title = `${time(s.startAt)} · ${t.name}`;
+      if (Platform.OS === "web") {
+        if (window.confirm(`${title}
+
+Book an appointment in this slot?${canBlock ? " (Cancel to block it instead)" : ""}`)) resolve("book");
+        else resolve(canBlock && window.confirm("Block this slot so it can't be booked?") ? "block" : null);
+        return;
+      }
+      Alert.alert(
+        title,
+        "This time is free.",
+        [
+          { text: "Book appointment", onPress: () => resolve("book") },
+          ...(canBlock ? [{ text: "Block slot", style: "destructive" as const, onPress: () => resolve("block" as const) }] : []),
+          { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(null) },
+      );
+    });
+
   const toggle = useAction(
-    async (s: CalSlot) => {
+    async ({ s, t }: { s: CalSlot; t: CalTherapist }) => {
+      if (s.status !== "BLOCKED") {
+        const choice = await freeSlotAction(s, t);
+        if (choice === "book") {
+          router.push({ pathname: "/book", params: { therapistId: t.id, date: day } });
+          return null;
+        }
+        if (choice !== "block") return null;
+      } else if (!(await confirm("Unblock this slot?", `${time(s.startAt)} will be bookable again.`, "Unblock"))) {
+        return null;
+      }
       const block = s.status !== "BLOCKED";
-      if (block && !(await confirm("Block this slot?", `${time(s.startAt)} will not be bookable.`, "Block"))) return null;
       return api.patch(`/slots/${s.id}`, { status: block ? "BLOCKED" : "AVAILABLE" });
     },
     { refresh: ["schedule"] },
@@ -131,17 +163,17 @@ function ScheduleDay() {
                   ) : (
                     <Pressable
                       key={s.id}
-                      onPress={canBlock ? () => toggle.mutate(s) : undefined}
-                      disabled={!canBlock || toggle.isPending}
-                      accessibilityRole={canBlock ? "button" : undefined}
-                      accessibilityLabel={`${time(s.startAt)} ${s.status === "BLOCKED" ? "blocked, tap to unblock" : "free, tap to block"}`}
+                      onPress={canBlock || s.status !== "BLOCKED" ? () => toggle.mutate({ s, t }) : undefined}
+                      disabled={(!canBlock && s.status === "BLOCKED") || toggle.isPending}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${time(s.startAt)} ${s.status === "BLOCKED" ? "blocked, tap to unblock" : "free, tap to book or block"}`}
                       style={[styles.slot, s.status === "BLOCKED" ? styles.blocked : styles.free]}
                     >
                       <Text weight="semibold" style={[styles.slotTime, s.status === "BLOCKED" && { color: colors.muted }]}>{time(s.startAt)}</Text>
                       <Text style={{ flex: 1, color: s.status === "BLOCKED" ? colors.muted : colors.success, textDecorationLine: s.status === "BLOCKED" ? "line-through" : "none" }}>
                         {s.status === "BLOCKED" ? "Blocked" : "Free"}
                       </Text>
-                      {canBlock ? <Ionicons name={s.status === "BLOCKED" ? "lock-open-outline" : "lock-closed-outline"} size={16} color={colors.muted} /> : null}
+                      {s.status === "BLOCKED" ? (canBlock ? <Ionicons name="lock-open-outline" size={16} color={colors.muted} /> : null) : <Ionicons name="add-circle-outline" size={18} color={colors.success} />}
                     </Pressable>
                   ),
                 )
@@ -150,13 +182,13 @@ function ScheduleDay() {
           );
         })
       )}
-      {canBlock ? <Muted style={{ fontSize: 12, textAlign: "center" }}>Tap a free slot to block it, or a blocked slot to free it.</Muted> : null}
+      <Muted style={{ fontSize: 12, textAlign: "center" }}>{canBlock ? "Tap a free slot to book or block it, or a blocked slot to free it." : "Tap a free slot to book it."}</Muted>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  navBtn: { width: 38, height: 38, borderRadius: 4, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
+  navBtn: { width: 38, height: 38, borderRadius: 12, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
   dot: { width: 10, height: 10, borderRadius: 5 },
   slot: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 10, paddingHorizontal: space.md, borderRadius: radius.sm, borderLeftWidth: 4 },
   slotTime: { width: 72, fontSize: 13, color: colors.navy700 },
