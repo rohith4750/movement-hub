@@ -89,5 +89,5 @@ function StaffList() {
 }
 
 const styles = StyleSheet.create({
-  banner: { backgroundColor: colors.warningBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: "#FDE68A" },
+  banner: { backgroundColor: colors.warningBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: "#C98A12" },
 });

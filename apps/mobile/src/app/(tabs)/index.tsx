@@ -130,7 +130,7 @@ function QuickAction({ icon, label: l, onPress }: { icon: ComponentProps<typeof 
 
 const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
-  stat: { flexBasis: "47%", flexGrow: 1, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.navy50, gap: 2 },
-  quick: { flex: 1, backgroundColor: colors.white, borderRadius: radius.lg, paddingVertical: space.md, alignItems: "center", gap: 6, borderWidth: 1, borderColor: colors.navy50 },
-  quickIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.gold100, alignItems: "center", justifyContent: "center" },
+  stat: { flexBasis: "47%", flexGrow: 1, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, gap: 2 },
+  quick: { flex: 1, backgroundColor: colors.white, borderRadius: radius.lg, paddingVertical: space.md, alignItems: "center", gap: 6, borderWidth: 1, borderColor: colors.border },
+  quickIcon: { width: 44, height: 44, borderRadius: 4, backgroundColor: colors.gold100, alignItems: "center", justifyContent: "center" },
 });

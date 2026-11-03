@@ -77,7 +77,7 @@ export function Row({ children, style, gap = space.sm }: { children: ReactNode; 
 }
 
 export function Divider() {
-  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: space.sm }} />;
+  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginVertical: space.sm }} />;
 }
 
 /* ───────────────────────── Brand ───────────────────────── */
@@ -176,7 +176,7 @@ const buttonVariants: Record<Variant, { bg: string; fg: string; border: string }
   primary: { bg: colors.navy800, fg: colors.white, border: colors.navy800 },
   gold: { bg: colors.gold500, fg: colors.navy950, border: colors.gold500 },
   ghost: { bg: colors.white, fg: colors.navy800, border: colors.border },
-  danger: { bg: colors.white, fg: colors.danger, border: "#FECDD3" },
+  danger: { bg: colors.white, fg: colors.danger, border: colors.danger },
 };
 
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
@@ -220,7 +220,8 @@ export function Chips<T extends string>({ options, value, onChange }: { options:
 export function Badge({ status, text }: { status: string; text?: string }) {
   const c = statusColors[status] ?? { bg: "#F1F5F9", fg: "#475569" };
   return (
-    <View style={[styles.badge, { backgroundColor: c.bg }]}>
+    // Outlined in its own colour so a status reads clearly, not as a faint pastel chip.
+    <View style={[styles.badge, { backgroundColor: c.bg, borderColor: c.fg }]}>
       <Text weight="semibold" style={{ color: c.fg, fontSize: 11 }}>{text ?? labelOf(status)}</Text>
     </View>
   );
@@ -308,7 +309,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
   },
   chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
-  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.sm, alignSelf: "flex-start" },
-  errorBox: { backgroundColor: colors.dangerBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: "#FECDD3" },
-  emptyIcon: { width: 60, height: 60, borderRadius: 18, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center" },
+  badge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.sm, borderWidth: 1, alignSelf: "flex-start" },
+  errorBox: { backgroundColor: colors.dangerBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: colors.danger },
+  emptyIcon: { width: 60, height: 60, borderRadius: 4, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center" },
 });

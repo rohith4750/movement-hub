@@ -223,7 +223,7 @@ function TherapistDetailScreen() {
                 <ErrorBox error={decide.error} />
               </Card>
               {conflicts && conflicts.length ? (
-                <Card style={{ borderColor: "#FDE68A", backgroundColor: colors.warningBg }}>
+                <Card style={{ borderColor: "#C98A12", backgroundColor: colors.warningBg }}>
                   <Text weight="semibold" style={{ color: colors.warning }}>{conflicts.length} appointment{conflicts.length > 1 ? "s" : ""} during this leave need rescheduling</Text>
                   {conflicts.map((c) => (
                     <Muted key={c.id} style={{ fontSize: 12 }}>
@@ -365,5 +365,5 @@ function LeaveSheet({ open, therapistId, isAdmin, onClose, onSaved }: { open: bo
 const styles = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.pill },
-  leaveRow: { paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, gap: 2 },
+  leaveRow: { paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider, gap: 2 },
 });

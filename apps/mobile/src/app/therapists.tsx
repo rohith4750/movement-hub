@@ -89,8 +89,8 @@ function Therapists() {
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, gap: 6, borderWidth: 1, borderColor: colors.navy50, borderTopWidth: 4, ...shadow },
+  card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, gap: 6, borderWidth: 1, borderColor: colors.border, borderTopWidth: 4, ...shadow },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.pill },
-  banner: { backgroundColor: colors.warningBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: "#FDE68A" },
+  banner: { backgroundColor: colors.warningBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: "#C98A12" },
 });

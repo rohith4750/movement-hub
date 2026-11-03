@@ -1,4 +1,4 @@
-/** Movement Hub brand theme — deep navy + gold, tuned for a crisp, corporate look. */
+/** Movement Hub brand theme — deep navy + gold: formal and official (square 4px corners, solid borders, flat surfaces). */
 export const colors = {
   navy950: "#050A24",
   navy900: "#0A1033",
@@ -12,11 +12,13 @@ export const colors = {
   gold500: "#C9A14A",
   gold300: "#E5C67F",
   gold100: "#F7EFDC",
-  bg: "#F2F4F9",
+  bg: "#E8EBF4",
   white: "#FFFFFF",
   text: "#0A1033",
-  muted: "#5D6487",
-  border: "#E3E6EF",
+  muted: "#454D70",
+  border: "#8D96B8",
+  /** Hairlines inside a card (table rows, dividers): lighter than a card's outline. */
+  divider: "#C3C9DD",
   danger: "#E11D48",
   dangerBg: "#FFF1F2",
   success: "#047857",
@@ -32,15 +34,16 @@ export const fonts = {
   bold: "Montserrat_700Bold",
 };
 
-export const radius = { sm: 8, md: 12, lg: 16, xl: 20, pill: 999 };
+/** Every corner is 4px (circles — avatars, dots — set their own size/2). */
+export const radius = { sm: 4, md: 4, lg: 4, xl: 4, pill: 4 };
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
 
 export const shadow = {
   shadowColor: "#0A1033",
-  shadowOpacity: 0.06,
-  shadowRadius: 12,
-  shadowOffset: { width: 0, height: 4 },
-  elevation: 2,
+  shadowOpacity: 0.08,
+  shadowRadius: 3,
+  shadowOffset: { width: 0, height: 1 },
+  elevation: 1,
 };
 
 /** Stronger lift for headers and primary surfaces. */

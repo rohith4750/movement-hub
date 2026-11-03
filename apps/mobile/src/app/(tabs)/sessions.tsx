@@ -65,6 +65,6 @@ export default function Sessions() {
 }
 
 const styles = StyleSheet.create({
-  card: { flexDirection: "row", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.navy50, ...shadow },
+  card: { flexDirection: "row", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, ...shadow },
   time: { width: 70, justifyContent: "center" },
 });

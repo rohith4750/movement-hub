@@ -342,9 +342,9 @@ export function Bars({ rows }: { rows: { label: string; value: number; display?:
 const styles = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(5,10,36,0.55)" },
   sheetWrap: { flex: 1, justifyContent: "flex-end" },
-  sheet: { backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "92%", ...shadow },
+  sheet: { backgroundColor: colors.bg, borderTopLeftRadius: 4, borderTopRightRadius: 4, maxHeight: "92%", ...shadow },
   grabber: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: colors.navy100, marginVertical: space.sm },
-  sheetFooter: { padding: space.lg, paddingTop: space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, backgroundColor: colors.white },
+  sheetFooter: { padding: space.lg, paddingTop: space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider, backgroundColor: colors.white },
   field: {
     flexDirection: "row",
     alignItems: "center",

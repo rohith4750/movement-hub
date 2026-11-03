@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
   dots: { flexDirection: "row", gap: 16, marginTop: space.lg },
   dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: colors.gold300 },
   dotFilled: { backgroundColor: colors.gold500, borderColor: colors.gold500 },
-  dotError: { borderColor: "#FDA4AF" },
+  dotError: { borderColor: colors.danger },
   message: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.md },
   error: { color: "#FECDD3", textAlign: "center", fontSize: 13 },
   pad: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignSelf: "center", width: "100%", maxWidth: 320, rowGap: space.md },

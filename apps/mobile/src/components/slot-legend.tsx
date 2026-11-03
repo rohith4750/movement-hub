@@ -4,9 +4,9 @@ import { Muted, Row } from "./ui";
 
 /** One look for time slots everywhere (booking, planner, schedule): available / booked / unavailable. */
 export const slotStyles = StyleSheet.create({
-  free: { backgroundColor: colors.white, borderColor: colors.navy100 },
-  booked: { backgroundColor: colors.navy50, borderColor: colors.navy50 },
-  off: { backgroundColor: "#F1F5F9", borderColor: "#F1F5F9" },
+  free: { backgroundColor: colors.white, borderColor: colors.border },
+  booked: { backgroundColor: colors.navy50, borderColor: colors.border },
+  off: { backgroundColor: "#DDE1EC", borderColor: colors.divider },
   selected: { backgroundColor: colors.navy800, borderColor: colors.navy800 },
   dot: { width: 14, height: 14, borderRadius: radius.sm / 2, borderWidth: 1 },
 });

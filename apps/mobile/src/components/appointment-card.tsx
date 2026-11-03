@@ -44,7 +44,7 @@ export function AppointmentCard({ a, showTherapist = true }: { a: Appointment; s
 }
 
 const styles = StyleSheet.create({
-  card: { flexDirection: "row", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.navy50, ...shadow },
+  card: { flexDirection: "row", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, ...shadow },
   timeBox: { width: 62, borderLeftWidth: 4, paddingLeft: space.sm, justifyContent: "center" },
   dot: { width: 8, height: 8, borderRadius: 4 },
 });

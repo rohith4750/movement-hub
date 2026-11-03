@@ -92,6 +92,6 @@ export default function Patients() {
 
 const styles = StyleSheet.create({
   search: { backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: space.md },
-  row: { flexDirection: "row", alignItems: "center", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.navy50, ...shadow },
+  row: { flexDirection: "row", alignItems: "center", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, ...shadow },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.gold100, alignItems: "center", justifyContent: "center" },
 });

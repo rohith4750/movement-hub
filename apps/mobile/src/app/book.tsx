@@ -727,7 +727,7 @@ function QuickAddressForm({ patientId, onCreated, onCancel }: { patientId: strin
 }
 
 const styles = StyleSheet.create({
-  pick: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  pick: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider },
   stepPill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
   stepOn: { backgroundColor: colors.navy700, borderColor: colors.navy700 },
   stepDone: { backgroundColor: colors.gold100, borderColor: colors.gold300 },
@@ -737,7 +737,7 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: colors.navy700, borderColor: colors.navy700 },
   day: { width: 60, paddingVertical: 8, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, alignItems: "center", backgroundColor: colors.white },
   dayOn: { backgroundColor: colors.navy700, borderColor: colors.navy700 },
-  dayFull: { backgroundColor: "#F1F5F9", borderColor: colors.navy50 },
+  dayFull: { backgroundColor: "#DDE1EC", borderColor: colors.divider },
   slots: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   slot: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, minWidth: 86, alignItems: "center" },
   slotOn: { backgroundColor: colors.navy700, borderColor: colors.navy700 },

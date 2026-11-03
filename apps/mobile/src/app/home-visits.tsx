@@ -108,7 +108,7 @@ function VisitList() {
       </Card>
 
       {notice ? (
-        <Card style={{ backgroundColor: colors.warningBg, borderColor: "#FDE68A" }}>
+        <Card style={{ backgroundColor: colors.warningBg, borderColor: "#C98A12" }}>
           <Row style={{ alignItems: "flex-start" }}>
             <Ionicons name="information-circle" size={18} color={colors.warning} />
             <Text style={{ flex: 1, color: colors.warning, fontSize: 13 }}>{notice}</Text>

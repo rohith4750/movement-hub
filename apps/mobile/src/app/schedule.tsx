@@ -156,7 +156,7 @@ function ScheduleDay() {
 }
 
 const styles = StyleSheet.create({
-  navBtn: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
+  navBtn: { width: 38, height: 38, borderRadius: 4, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
   dot: { width: 10, height: 10, borderRadius: 5 },
   slot: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 10, paddingHorizontal: space.md, borderRadius: radius.sm, borderLeftWidth: 4 },
   slotTime: { width: 72, fontSize: 13, color: colors.navy700 },

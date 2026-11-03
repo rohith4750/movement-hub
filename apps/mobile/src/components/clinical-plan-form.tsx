@@ -193,5 +193,5 @@ export function QuickPlanForm({ patientId, onCreated, onCancel }: { patientId: s
 const styles = StyleSheet.create({
   scale: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   scaleBtn: { width: 34, height: 34, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
-  item: { gap: space.sm, padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.navy50, backgroundColor: colors.bg },
+  item: { gap: space.sm, padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg },
 });

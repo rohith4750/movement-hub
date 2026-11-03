@@ -233,5 +233,5 @@ const monthName = (ym: string) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.sl
 const styles = StyleSheet.create({
   cell: { flex: 1, textAlign: "right", fontSize: 12 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
-  tableRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  tableRow: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider },
 });
