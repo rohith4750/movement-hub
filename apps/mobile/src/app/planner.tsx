@@ -276,6 +276,16 @@ function CandidateCard({ c, pick, slot, therapistName, onToggle, onPick }: { c: 
       </Row>
 
       <View style={{ gap: 2, paddingLeft: 32 }}>
+        {c.regularAway || c.covering ? (
+          <Row gap={6}>
+            <Badge status="WALK_IN" text={c.regularAway ? "Cover" : "Other physio"} />
+            <Muted style={{ fontSize: 12, flex: 1, color: colors.gold700 }} numberOfLines={2}>
+              {c.regularAway
+                ? `${c.regularTherapistName ?? "Regular physio"} is ${c.regularAwayReason === "ON_LEAVE" ? "on leave" : "not working"} — ${tId && tId !== c.regularTherapistId ? `covered by ${therapistName.get(tId) ?? "you"}` : "choose who covers"}`
+                : `Usually sees ${c.regularTherapistName ?? "another physio"}`}
+            </Muted>
+          </Row>
+        ) : null}
         {c.plan ? (
           <Muted style={{ fontSize: 12 }} numberOfLines={2}>
             {c.plan.full ? "Plan fully booked → follow-up visit" : label(c.type)} · {c.plan.title} · {c.plan.sessionsBooked}/{c.plan.prescribedSessions} booked · {c.plan.frequencyPerWeek}×/week
@@ -329,7 +339,7 @@ function BookedList({ appointments, therapists, onMove }: { appointments: Planne
                     <Text style={{ fontSize: 13 }} numberOfLines={1}>{fullName(a.patient)}</Text>
                     <Muted style={{ fontSize: 11 }} numberOfLines={1}>{label(a.type)}{a.source === "WALK_IN" ? " · Walk-in" : ""}</Muted>
                   </Pressable>
-                  {a.status !== "SCHEDULED" ? <Badge status={a.status} /> : null}
+                  {a.needsMove ? <Badge status="NO_SHOW" text="Move: physio away" /> : a.status !== "SCHEDULED" ? <Badge status={a.status} /> : null}
                   {movable ? (
                     <Pressable onPress={() => onMove(a)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Move ${fullName(a.patient)}`} style={styles.moveBtn}>
                       <Ionicons name="swap-horizontal" size={16} color={colors.navy700} />

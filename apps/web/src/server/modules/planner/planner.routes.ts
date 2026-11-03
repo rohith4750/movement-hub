@@ -83,6 +83,25 @@ plannerRouter.get(
       prisma.appointment.findMany({ where: { startAt: range, status: { in: [...LIVE] } }, select: { patientId: true }, distinct: ["patientId"] }),
     ]);
 
+    /* ── who is away that day ── */
+    // A physio is away when on approved leave, or not working (no slots) that day. Their regular
+    // patients still need seeing, so another physio covers them.
+    const [everyone, slotCounts] = await Promise.all([
+      prisma.therapist.findMany({
+        where: { isActive: true },
+        select: { id: true, user: { select: { name: true } }, leaves: { where: { status: "APPROVED", startDate: { lt: range.lt }, endDate: { gt: range.gte } }, select: { id: true } } },
+      }),
+      prisma.therapistSlot.groupBy({ by: ["therapistId"], where: { startAt: range }, _count: { _all: true } }),
+    ]);
+    const nameOf = new Map(everyone.map((t) => [t.id, t.user.name]));
+    const working = new Set(slotCounts.filter((c) => c._count._all > 0).map((c) => c.therapistId));
+    const awayWhy = new Map<string, "ON_LEAVE" | "NOT_WORKING">();
+    for (const t of everyone) {
+      if (t.leaves.length) awayWhy.set(t.id, "ON_LEAVE");
+      else if (!working.has(t.id)) awayWhy.set(t.id, "NOT_WORKING");
+    }
+    const awayIds = [...awayWhy.keys()];
+
     /* ── patients who still need a visit that day ── */
     const bookedIds = bookedAnywhere.map((a) => a.patientId);
     const recent = new Date(Date.now() - RECENT_DAYS * 86_400_000);
@@ -96,7 +115,20 @@ plannerRouter.get(
         id: { notIn: bookedIds },
         AND: [
           { OR: ongoing },
-          ...(onlyTherapist ? [{ OR: [{ primaryTherapistId: onlyTherapist }, { treatmentPlans: { some: { status: "ACTIVE" as const, therapistId: onlyTherapist } } }] }] : []),
+          ...(onlyTherapist
+            ? [
+                {
+                  OR: [
+                    { primaryTherapistId: onlyTherapist },
+                    { treatmentPlans: { some: { status: "ACTIVE" as const, therapistId: onlyTherapist } } },
+                    // Physios also see patients they can cover for an away colleague.
+                    ...(mine && awayIds.length
+                      ? [{ primaryTherapistId: { in: awayIds } }, { treatmentPlans: { some: { status: "ACTIVE" as const, therapistId: { in: awayIds } } } }]
+                      : []),
+                  ],
+                },
+              ]
+            : []),
         ],
       },
       select: {
@@ -146,6 +178,27 @@ plannerRouter.get(
     }
     const onLeave = new Set(therapists.filter((t) => t.leaves.length).map((t) => t.id));
     const taken = new Set<string>(); // don't suggest the same free slot to two patients
+    const dist = (sl: { startAt: Date }, usual: string) => Math.abs(minutesOf(localTimeString(sl.startAt)) - minutesOf(usual));
+    /** A physio's free slot at the usual time, else the nearest one. */
+    const bestSlot = (tid: string, usual: string | null) => {
+      const free = slots.filter((x) => x.therapistId === tid && x.status === "AVAILABLE" && !taken.has(x.id) && x.startAt > new Date());
+      if (!usual) return { slot: free[0] ?? null, exact: false };
+      const at = free.find((x) => localTimeString(x.startAt) === usual);
+      if (at) return { slot: at, exact: true };
+      return { slot: [...free].sort((a, b) => dist(a, usual) - dist(b, usual))[0] ?? null, exact: false };
+    };
+    /** Who covers for an away physio: a working physio with a free slot closest to the usual time. */
+    const pickCover = (usual: string | null) => {
+      let best: { tid: string; score: number } | null = null;
+      for (const t of therapists) {
+        if (awayWhy.has(t.id)) continue;
+        const { slot } = bestSlot(t.id, usual);
+        if (!slot) continue;
+        const score = usual ? dist(slot, usual) : 0;
+        if (!best || score < best.score) best = { tid: t.id, score };
+      }
+      return best?.tid;
+    };
 
     const toPlan = candidates
       .map((c) => {
@@ -155,24 +208,22 @@ plannerRouter.get(
         const type: AppointmentType = plan && !planFull ? "THERAPY_SESSION" : "FOLLOW_UP_CONSULTATION";
         const past = historyBy.get(c.id) ?? [];
         const usualTime = mode(past.map((p) => p.time));
-        // A physio's own list is always planned with them.
-        const therapistId = mine ?? plan?.therapistId ?? c.primaryTherapistId ?? mode(past.map((p) => p.therapistId));
+        const regularId = plan?.therapistId ?? c.primaryTherapistId ?? mode(past.map((p) => p.therapistId));
+        const regularAway = !!regularId && awayWhy.has(regularId);
+        // A physio's view: their own patients, plus patients whose regular physio is away.
+        if (mine && !(c.primaryTherapistId === mine || plan?.therapistId === mine || regularAway)) return null;
+        // In a physio's own view they plan with themselves (covering if the regular physio is
+        // away). In the clinic view: the regular physio, or — if they're away — whoever has a free
+        // slot nearest the patient's usual time.
+        let therapistId: string | null = mine ?? regularId ?? null;
+        if (!mine && regularAway) therapistId = pickCover(usualTime) ?? null;
         // Package: the one sold for this plan first, then any other with sessions left.
         const usable = c.packages.filter((p) => p.remainingSessions - (reservedBy.get(p.id) ?? 0) > 0);
         const pkg = type === "THERAPY_SESSION" ? usable.find((p) => p.treatmentPlanId === plan?.id) ?? usable[0] ?? null : null;
 
-        // Suggest the usual time with the usual physio; otherwise that physio's nearest free slot.
-        let slot: (typeof slots)[number] | null = null;
-        let exact = false;
-        if (therapistId && !onLeave.has(therapistId)) {
-          const free = slots.filter((s) => s.therapistId === therapistId && s.status === "AVAILABLE" && !taken.has(s.id) && s.startAt > new Date());
-          if (usualTime) {
-            slot = free.find((s) => localTimeString(s.startAt) === usualTime) ?? null;
-            exact = !!slot;
-            slot ??= [...free].sort((a, b) => Math.abs(minutesOf(localTimeString(a.startAt)) - minutesOf(usualTime)) - Math.abs(minutesOf(localTimeString(b.startAt)) - minutesOf(usualTime)))[0] ?? null;
-          } else slot = free[0] ?? null;
-          if (slot) taken.add(slot.id);
-        }
+        // Suggest the usual time with that physio; otherwise their nearest free slot.
+        const { slot, exact } = therapistId && !onLeave.has(therapistId) ? bestSlot(therapistId, usualTime) : { slot: null, exact: false };
+        if (slot) taken.add(slot.id);
         const s = stats.get(c.id);
         return {
           patient: { id: c.id, patientCode: c.patientCode, firstName: c.firstName, lastName: c.lastName, phone: c.phone },
@@ -184,13 +235,21 @@ plannerRouter.get(
           type,
           therapistId,
           therapistOnLeave: !!therapistId && onLeave.has(therapistId),
+          /** The patient's usual physio, and whether they are away that day (someone else covers). */
+          regularTherapistId: regularId,
+          regularTherapistName: regularId ? nameOf.get(regularId) ?? null : null,
+          regularAway,
+          regularAwayReason: regularId ? awayWhy.get(regularId) ?? null : null,
+          /** Planned with someone other than the regular physio. */
+          covering: !!therapistId && !!regularId && therapistId !== regularId,
           usualTime,
           suggestedSlotId: slot?.id ?? null,
           suggestedIsUsual: exact,
         };
       })
-      // Patients with an active plan first, then the most recently seen.
-      .sort((a, b) => Number(!!b.plan) - Number(!!a.plan) || (b.lastVisitAt?.getTime() ?? 0) - (a.lastVisitAt?.getTime() ?? 0));
+      .filter((c): c is NonNullable<typeof c> => c !== null)
+      // Own patients first, then ones to cover; within each, active plans first, then most recently seen.
+      .sort((a, b) => Number(a.covering) - Number(b.covering) || Number(!!b.plan) - Number(!!a.plan) || (b.lastVisitAt?.getTime() ?? 0) - (a.lastVisitAt?.getTime() ?? 0));
 
     const summary = therapists.map((t) => {
       const mine = slots.filter((s) => s.therapistId === t.id);
@@ -221,6 +280,8 @@ plannerRouter.get(
         startAt: a.startAt,
         endAt: a.endAt,
         therapistId: a.therapistId,
+        /** Booked with a physio who is away that day: move it to someone who is working. */
+        needsMove: awayWhy.has(a.therapistId) && ["SCHEDULED", "CONFIRMED"].includes(a.status),
         patient: a.patient,
         treatmentPlan: a.treatmentPlan,
       })),

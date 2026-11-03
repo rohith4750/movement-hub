@@ -263,6 +263,8 @@ export interface PlannerAppointment {
   startAt: string;
   endAt: string;
   therapistId: string;
+  /** Booked with a physio who is away that day: move it to someone who is working. */
+  needsMove?: boolean;
   patient: { id: string; patientCode: string; firstName: string; lastName: string | null; phone: string };
   treatmentPlan: { id: string; title: string; planNo: string } | null;
 }
@@ -281,6 +283,13 @@ export interface PlannerCandidate {
   usualTime: string | null;
   suggestedSlotId: string | null;
   suggestedIsUsual: boolean;
+  /** The patient's usual physio, and whether they are away that day (another physio covers). */
+  regularTherapistId: string | null;
+  regularTherapistName: string | null;
+  regularAway: boolean;
+  regularAwayReason: "ON_LEAVE" | "NOT_WORKING" | null;
+  /** Planned with someone other than the regular physio. */
+  covering: boolean;
 }
 
 export interface PlannerDay {
