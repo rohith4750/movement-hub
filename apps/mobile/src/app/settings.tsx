@@ -62,20 +62,22 @@ function SettingsForm() {
   const set = (k: keyof Form, v: string) => f && setDraft({ ...f, [k]: v });
   const num = (v: string) => v.replace(/[^\d.]/g, "");
 
+  // The form is passed in when saving (not read from `f` here): the React Compiler would turn
+  // `f!.x` in this callback into a change-check that crashes while settings are still loading.
   const save = useAction(
-    () =>
+    (form: Form) =>
       api.patch<Settings>("/settings", {
-        consultationFee: Number(f!.consultationFee),
-        therapySessionFee: Number(f!.therapySessionFee),
-        homeVisitFee: Number(f!.homeVisitFee),
-        travelChargePerKm: Number(f!.travelChargePerKm),
-        gstPercent: Number(f!.gstPercent),
-        defaultSlotMinutes: Number(f!.defaultSlotMinutes),
-        openingTime: f!.openingTime,
-        closingTime: f!.closingTime,
-        cancellationHours: Number(f!.cancellationHours),
-        reminderHoursBefore: Number(f!.reminderHoursBefore),
-        invoicePrefix: f!.invoicePrefix.trim(),
+        consultationFee: Number(form.consultationFee),
+        therapySessionFee: Number(form.therapySessionFee),
+        homeVisitFee: Number(form.homeVisitFee),
+        travelChargePerKm: Number(form.travelChargePerKm),
+        gstPercent: Number(form.gstPercent),
+        defaultSlotMinutes: Number(form.defaultSlotMinutes),
+        openingTime: form.openingTime,
+        closingTime: form.closingTime,
+        cancellationHours: Number(form.cancellationHours),
+        reminderHoursBefore: Number(form.reminderHoursBefore),
+        invoicePrefix: form.invoicePrefix.trim(),
       }),
     { refresh: ["settings"], onSuccess: () => setDraft(null) },
   );
@@ -142,7 +144,7 @@ function SettingsForm() {
           {save.isSuccess && !draft ? <Text style={{ color: colors.success, fontSize: 13 }}>✓ Settings saved</Text> : null}
           <Row>
             {draft ? <Button title="Discard" variant="ghost" onPress={() => setDraft(null)} style={{ flex: 1 }} /> : null}
-            <Button title="Save settings" icon="save-outline" onPress={() => save.mutate()} disabled={!draft || !!problem} loading={save.isPending} style={{ flex: 1 }} />
+            <Button title="Save settings" icon="save-outline" onPress={() => f && save.mutate(f)} disabled={!draft || !!problem} loading={save.isPending} style={{ flex: 1 }} />
           </Row>
           {!draft ? <Muted style={{ fontSize: 12, textAlign: "center" }}>Change any value to enable Save.</Muted> : null}
         </>

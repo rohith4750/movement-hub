@@ -78,7 +78,10 @@ export function SetPinSheet({ user, onClose }: { user: { id: string; name: strin
     save.reset();
     onClose();
   };
-  const save = useAction(() => api.post(`/users/${user!.id}/pin`, { pin }), { refresh: ["staff"], onSuccess: () => close() });
+  // Plain id, not user!.id inside the callback: the React Compiler would turn that into a
+  // change-check that crashes while the sheet is closed (user = null).
+  const userId = user ? user.id : "";
+  const save = useAction(() => api.post(`/users/${userId}/pin`, { pin }), { refresh: ["staff"], onSuccess: () => close() });
   const problem = pinProblem(pin, confirm);
   return (
     <Sheet

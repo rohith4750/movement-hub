@@ -75,6 +75,7 @@ export default function AppointmentDetail() {
   // Plain values, worked out here: the React Compiler turns `a?.x` read inside a callback into an
   // unguarded `a.x` change-check, which crashed this screen while the appointment was loading.
   const apptNo = a ? a.appointmentNo : "";
+  const consultationId = a && a.consultation ? a.consultation.id : "";
   const patientName = a ? fullName(a.patient) : "";
   const hasNotes = !!(a && a.consultation);
   const remove = useAction(
@@ -137,7 +138,7 @@ export default function AppointmentDetail() {
   };
   const saveConsult = useAction(
     async () => {
-      const cid = a!.consultation!.id;
+      const cid = consultationId;
       await api.patch(`/consultations/${cid}`, {
         chiefComplaint: c.chiefComplaint.trim() || undefined,
         symptoms: c.symptoms.trim() || undefined,
