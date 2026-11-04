@@ -136,10 +136,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Menu />
           </button>
           <div className="ml-auto flex items-center gap-4">
-            <div className="text-right">
+            <Link href="/account" className="text-right hover:opacity-80" title="My account">
               <div className="text-sm font-semibold">{user.name}</div>
               <div className="text-xs text-navy-500">{label(user.role)}</div>
-            </div>
+            </Link>
             <button onClick={logout} className="btn-ghost" title="Log out">
               <LogOut size={16} />
             </button>

@@ -97,7 +97,10 @@ async function request<T>(method: string, path: string, body?: unknown, withMeta
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-  if (res.status === 401 && retry && useAuth.getState().refreshToken && !path.startsWith("/auth/")) {
+  // Other /auth/* calls are excluded: login/refresh are public, and pin/change or change-password answer 401
+  // for a wrong current PIN/password, which must not be retried. /auth/me is a plain authenticated read.
+  const canRefresh = !path.startsWith("/auth/") || path === "/auth/me";
+  if (res.status === 401 && retry && useAuth.getState().refreshToken && canRefresh) {
     refreshing ??= refresh().finally(() => (refreshing = null));
     if (await refreshing) return request<T>(method, path, body, withMeta, false);
   }

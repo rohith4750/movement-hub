@@ -16,7 +16,9 @@ interface Session {
   painBefore: number | null;
   notes: string | null;
   patient: { id: string; patientCode: string; firstName: string; lastName: string | null };
-  therapist: { user: { name: string } };
+  therapist: { id: string; user: { name: string } };
+  coverReason: string | null;
+  coveredByName: string | null;
   appointment: { startAt: string; appointmentNo: string };
   treatmentPlan: { title: string; prescribedSessions: number; items: { id: string; category: string; name: string; sets: number | null; reps: number | null; durationMinutes: number | null }[] } | null;
   patientPackage: { remainingSessions: number; package: { name: string } } | null;
@@ -87,11 +89,19 @@ function SessionModal({ session, onClose }: { session: Session; onClose: () => v
   const [exercises, setExercises] = useState<Ex[]>(
     session.treatmentPlan?.items.filter((i) => i.category === "Exercise Therapy").map((i) => ({ name: i.name, sets: i.sets ?? undefined, reps: i.reps ?? undefined })) ?? [],
   );
+  const user = useAuth((s) => s.user);
+  const [coverReason, setCoverReason] = useState("");
   const refresh = () => qc.invalidateQueries({ queryKey: ["sessions"] });
 
-  const start = useMutation({ mutationFn: () => api.post(`/therapy-sessions/${session.id}/start`, { painBefore }), onSuccess: refresh });
+  // Any physiotherapist (or Super Admin) can run a session; if it isn't theirs they must say why.
+  const isOwner = user?.role === "SUPER_ADMIN" || user?.therapistId === session.therapist.id;
+  const needsReason = !isOwner && !session.coverReason;
+  const reasonMissing = needsReason && coverReason.trim().length < 3;
+  const reason = coverReason.trim() || undefined;
+
+  const start = useMutation({ mutationFn: () => api.post(`/therapy-sessions/${session.id}/start`, { painBefore, coverReason: reason }), onSuccess: refresh });
   const complete = useMutation({
-    mutationFn: () => api.post<{ package: { remainingSessions: number } | null; plan: { id: string; planNo: string; prescribedSessions: number; readyToComplete: boolean } | null }>(`/therapy-sessions/${session.id}/complete`, { painBefore, painAfter, progressRating, notes: notes || undefined, homeAdvice: homeAdvice || undefined, exercises: exercises.filter((e) => e.name) }),
+    mutationFn: () => api.post<{ package: { remainingSessions: number } | null; plan: { id: string; planNo: string; prescribedSessions: number; readyToComplete: boolean } | null }>(`/therapy-sessions/${session.id}/complete`, { painBefore, coverReason: reason, painAfter, progressRating, notes: notes || undefined, homeAdvice: homeAdvice || undefined, exercises: exercises.filter((e) => e.name) }),
     onSuccess: (r) => {
       refresh();
       qc.invalidateQueries({ queryKey: ["plans"] });
@@ -112,6 +122,16 @@ All ${r.plan.prescribedSessions} prescribed sessions of plan ${r.plan.planNo} ar
   return (
     <Modal open onClose={onClose} title={`${fullName(session.patient)} · Session ${session.sessionNumber ?? ""}`} wide>
       <div className="space-y-4">
+        {session.coverReason && (
+          <div className="rounded-lg bg-gold-100 p-3 text-sm text-navy-500">
+            Taken over by {session.coveredByName ?? "another physiotherapist"} instead of {session.therapist.user.name}: {session.coverReason}
+          </div>
+        )}
+        {needsReason && (
+          <Field label={`Reason for taking this session from ${session.therapist.user.name} *`}>
+            <textarea className="input" rows={2} value={coverReason} onChange={(e) => setCoverReason(e.target.value)} placeholder="e.g. Assigned physio is on leave / running late" />
+          </Field>
+        )}
         {session.treatmentPlan && (
           <div className="rounded-lg bg-navy-50 p-3 text-sm">
             <b>{session.treatmentPlan.title}</b>
@@ -129,7 +149,7 @@ All ${r.plan.prescribedSessions} prescribed sessions of plan ${r.plan.planNo} ar
         {session.status === "SCHEDULED" ? (
           <>
             <ErrorText error={start.error} />
-            <div className="flex justify-end"><button className="btn-primary" disabled={start.isPending} onClick={() => start.mutate()}>Start session</button></div>
+            <div className="flex justify-end"><button className="btn-primary" disabled={start.isPending || reasonMissing} onClick={() => start.mutate()}>Start session</button></div>
           </>
         ) : (
           <>
@@ -149,7 +169,7 @@ All ${r.plan.prescribedSessions} prescribed sessions of plan ${r.plan.planNo} ar
             <Field label="Home advice"><textarea className="input" rows={2} value={homeAdvice} onChange={(e) => setHomeAdvice(e.target.value)} /></Field>
             {session.patientPackage && <p className="text-xs text-navy-500">Completing deducts 1 session from {session.patientPackage.package.name} ({session.patientPackage.remainingSessions} left).</p>}
             <ErrorText error={complete.error} />
-            <div className="flex justify-end"><button className="btn-gold" disabled={complete.isPending} onClick={() => complete.mutate()}>Complete session</button></div>
+            <div className="flex justify-end"><button className="btn-gold" disabled={complete.isPending || reasonMissing} onClick={() => complete.mutate()}>Complete session</button></div>
           </>
         )}
       </div>
