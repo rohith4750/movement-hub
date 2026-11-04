@@ -12,14 +12,14 @@ export const reportRouter = Router();
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 /** Optional for the Super Admin: one physio's figures. Physios always get their own. */
-const therapistFilter = z.string().uuid().optional();
-const rangeQuery = z.object({ from: date.default(() => `${todayLocal().slice(0, 7)}-01`), to: date.default(() => todayLocal()) });
-type Range = z.infer<typeof rangeQuery>;
-const span = (r: Range) => ({ gte: dayRange(r.from).gte, lt: dayRange(r.to).lt });
-const num = (v: Prisma.Decimal | null | undefined) => Number(v ?? 0);
+export const therapistFilter = z.string().uuid().optional();
+export const rangeQuery = z.object({ from: date.default(() => `${todayLocal().slice(0, 7)}-01`), to: date.default(() => todayLocal()) });
+export type Range = z.infer<typeof rangeQuery>;
+export const span = (r: Range) => ({ gte: dayRange(r.from).gte, lt: dayRange(r.to).lt });
+export const num = (v: Prisma.Decimal | null | undefined) => Number(v ?? 0);
 
 /** Successful money in, minus processed refunds, within a range — optionally one physio's bills only. */
-async function netRevenue(range: { gte: Date; lt: Date }, therapistId?: string) {
+export async function netRevenue(range: { gte: Date; lt: Date }, therapistId?: string) {
   const own = therapistId ? { invoice: { therapistId } } : {};
   const [paid, refunded] = await Promise.all([
     prisma.payment.aggregate({ _sum: { amount: true }, where: { status: { in: ["SUCCESS", "PARTIALLY_REFUNDED", "REFUNDED"] }, paidAt: range, ...own } }),

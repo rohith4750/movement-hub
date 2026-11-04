@@ -7,7 +7,7 @@ import { Logo, Text } from "@/components/ui";
 import { ApiError, api, messageOf } from "@/lib/api";
 import { API_URL } from "@/lib/config";
 import { useAuth, type Session } from "@/lib/auth";
-import { colors, radius, space } from "@/theme";
+import { colors, space } from "@/theme";
 
 const PIN_LENGTH = 6;
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"] as const;
@@ -86,17 +86,18 @@ Server: ${API_URL.replace(/\/api\/v1$/, "")} (is the API running?)` : messageOf(
           k === "" ? (
             <View key={i} style={styles.key} />
           ) : (
-            <Pressable
-              key={i}
-              onPress={() => press(k)}
-              onLongPress={k === "del" ? () => setPin("") : undefined}
-              disabled={busy}
-              accessibilityRole="button"
-              accessibilityLabel={k === "del" ? "Delete digit" : k}
-              style={({ pressed }) => [styles.key, styles.keyBtn, pressed && styles.keyPressed]}
-            >
-              {k === "del" ? <Ionicons name="backspace-outline" size={26} color={colors.white} /> : <Text weight="semibold" style={styles.keyText}>{k}</Text>}
-            </Pressable>
+            <View key={i} style={styles.key}>
+              <Pressable
+                onPress={() => press(k)}
+                onLongPress={k === "del" ? () => setPin("") : undefined}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel={k === "del" ? "Delete digit" : k}
+                style={({ pressed }) => [styles.keyBtn, k === "del" && styles.keyDel, pressed && styles.keyPressed]}
+              >
+                {k === "del" ? <Ionicons name="backspace-outline" size={26} color={colors.white} /> : <Text weight="semibold" style={styles.keyText}>{k}</Text>}
+              </Pressable>
+            </View>
           ),
         )}
       </View>
@@ -107,21 +108,22 @@ Server: ${API_URL.replace(/\/api\/v1$/, "")} (is the API running?)` : messageOf(
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.navy950, justifyContent: "space-between", paddingHorizontal: space.xl, paddingVertical: space.lg },
+  screen: { flex: 1, backgroundColor: colors.navy900, justifyContent: "space-between", paddingHorizontal: space.xl, paddingVertical: space.lg },
   top: { alignItems: "center", gap: 6, marginTop: space.lg },
   title: { color: colors.white, fontSize: 22, letterSpacing: 2, marginTop: space.sm },
   subtitle: { color: colors.gold300, fontSize: 11, letterSpacing: 3 },
   prompt: { color: colors.navy100, fontSize: 15, marginTop: space.xl },
-  dots: { flexDirection: "row", gap: 16, marginTop: space.lg },
-  dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: colors.gold300 },
-  dotFilled: { backgroundColor: colors.gold500, borderColor: colors.gold500 },
+  dots: { flexDirection: "row", gap: 18, marginTop: space.lg },
+  dot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: "rgba(229,198,127,0.45)" },
+  dotFilled: { backgroundColor: colors.gold500, borderColor: colors.gold500, shadowColor: colors.gold500, shadowOpacity: 0.6, shadowRadius: 8, shadowOffset: { width: 0, height: 0 }, elevation: 4 },
   dotError: { borderColor: colors.danger },
   message: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.md },
   error: { color: "#FECDD3", textAlign: "center", fontSize: 13 },
   pad: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignSelf: "center", width: "100%", maxWidth: 320, rowGap: space.md },
-  key: { width: "33.33%", height: 68, alignItems: "center", justifyContent: "center" },
-  keyBtn: { borderRadius: radius.pill },
-  keyPressed: { backgroundColor: "rgba(229,198,127,0.16)" },
+  key: { width: "33.33%", height: 76, alignItems: "center", justifyContent: "center" },
+  keyBtn: { width: 70, height: 70, borderRadius: 35, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.07)" },
+  keyDel: { backgroundColor: "transparent" },
+  keyPressed: { backgroundColor: "rgba(229,198,127,0.28)", transform: [{ scale: 0.95 }] },
   keyText: { color: colors.white, fontSize: 28 },
   help: { color: colors.navy100, fontSize: 12, textAlign: "center" },
 });

@@ -1,5 +1,6 @@
 import { useRef, type ComponentRef } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { notifyEdit } from "@/lib/form-activity";
 import { colors, radius } from "@/theme";
 
 export const PIN_LENGTH = 6;
@@ -45,6 +46,7 @@ export function PinInput({
         value={value}
         onChangeText={(t) => {
           const v = t.replace(/\D/g, "").slice(0, PIN_LENGTH);
+          notifyEdit();
           onChange(v);
           if (v.length === PIN_LENGTH) onComplete?.(v);
         }}

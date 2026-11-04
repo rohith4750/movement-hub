@@ -13,7 +13,7 @@ import { AppState, Platform, type AppStateStatus } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth";
 import { usePlannerStore } from "@/lib/planner-store";
-import { ApiError } from "@/lib/api";
+import { ApiError, warmUp } from "@/lib/api";
 import { colors } from "@/theme";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -21,6 +21,8 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 // Refetch when the app comes back to the foreground (React Query's "window focus" for native).
 function onAppStateChange(status: AppStateStatus) {
   if (Platform.OS !== "web") focusManager.setFocused(status === "active");
+  // Back from the background: replace any dead connection now, so the first submit isn't the one that finds it.
+  if (status === "active") void warmUp(true);
 }
 onlineManager.setOnline(true);
 

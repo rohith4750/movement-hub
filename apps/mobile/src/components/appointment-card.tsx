@@ -15,7 +15,7 @@ export function AppointmentCard({ a, showTherapist = true }: { a: Appointment; s
       accessibilityLabel={`${time(a.startAt)}, ${fullName(a.patient)}, ${label(a.type)}, ${label(a.status)}`}
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
     >
-      <View style={[styles.timeBox, { borderLeftColor: a.therapist.colorTag ?? colors.gold500 }]}>
+      <View style={styles.timeBox}>
         <Text weight="bold" style={{ color: colors.navy700, fontSize: 15 }}>{time(a.startAt).replace(/ (AM|PM)$/, "")}</Text>
         <Text style={{ color: colors.muted, fontSize: 11 }}>{time(a.startAt).slice(-2)}</Text>
       </View>
@@ -44,7 +44,7 @@ export function AppointmentCard({ a, showTherapist = true }: { a: Appointment; s
 }
 
 const styles = StyleSheet.create({
-  card: { flexDirection: "row", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, ...shadow },
-  timeBox: { width: 62, borderLeftWidth: 4, paddingLeft: space.sm, justifyContent: "center" },
+  card: { flexDirection: "row", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: 14, borderWidth: 1, borderColor: colors.border, ...shadow },
+  timeBox: { width: 62, borderRadius: radius.md, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center", paddingVertical: space.sm },
   dot: { width: 8, height: 8, borderRadius: 4 },
 });

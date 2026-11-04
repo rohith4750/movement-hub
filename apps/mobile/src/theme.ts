@@ -1,4 +1,4 @@
-/** Movement Hub brand theme — deep navy + gold: formal and official (square 4px corners, solid borders, flat surfaces). */
+/** Movement Hub brand theme — deep navy + gold, soft and modern: rounded cards, light borders, gentle shadows, airy spacing. */
 export const colors = {
   navy950: "#050A24",
   navy900: "#0A1033",
@@ -12,13 +12,15 @@ export const colors = {
   gold500: "#C9A14A",
   gold300: "#E5C67F",
   gold100: "#F7EFDC",
-  bg: "#E8EBF4",
+  bg: "#F3F5FB",
   white: "#FFFFFF",
+  /** Filled input / select background (white when focused). */
+  field: "#F6F7FC",
   text: "#0A1033",
-  muted: "#454D70",
-  border: "#8D96B8",
+  muted: "#5A6288",
+  border: "#E1E5F1",
   /** Hairlines inside a card (table rows, dividers): lighter than a card's outline. */
-  divider: "#C3C9DD",
+  divider: "#ECEFF7",
   danger: "#E11D48",
   dangerBg: "#FFF1F2",
   success: "#047857",
@@ -34,16 +36,16 @@ export const fonts = {
   bold: "Montserrat_700Bold",
 };
 
-/** Every corner is 4px (circles — avatars, dots — set their own size/2). */
-export const radius = { sm: 12, md: 12, lg: 12, xl: 12, pill: 12 };
+/** Soft rounded corners: small controls 10–14, cards 20, hero headers 28, pills fully round. */
+export const radius = { sm: 10, md: 14, lg: 20, xl: 28, pill: 999 };
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
 
 export const shadow = {
-  shadowColor: "#0A1033",
-  shadowOpacity: 0.08,
-  shadowRadius: 3,
-  shadowOffset: { width: 0, height: 1 },
-  elevation: 1,
+  shadowColor: "#1C2670",
+  shadowOpacity: 0.07,
+  shadowRadius: 14,
+  shadowOffset: { width: 0, height: 5 },
+  elevation: 2,
 };
 
 /** Stronger lift for headers and primary surfaces. */

@@ -17,7 +17,7 @@ export const qk = {
     day: (date: string, therapistId?: string) => ["appointments", "day", date, therapistId ?? "all"] as const,
   },
   appointment: (id: string) => ["appointment", id] as const,
-  planner: (date: string, therapistId?: string) => ["planner", date, therapistId ?? "all"] as const,
+  planner: (date: string, therapistId?: string, include: string[] = []) => ["planner", date, therapistId ?? "all", include.join(",")] as const,
   calendar: (date: string) => ["calendar", "day", date] as const,
   availability: (params: Params) => ["availability", params] as const,
   availabilitySummary: (params: Params) => ["availability-summary", params] as const,

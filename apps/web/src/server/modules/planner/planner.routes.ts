@@ -39,11 +39,20 @@ const minutesOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.
 plannerRouter.get(
   "/",
   authorize("RECEPTIONIST", "ADMIN"),
-  validate({ query: z.object({ date: date.optional(), therapistId: z.string().uuid().optional() }) }),
+  validate({
+    query: z.object({
+      date: date.optional(),
+      therapistId: z.string().uuid().optional(),
+      /** Patients the front desk added by hand (comma-separated ids): planned even if not in ongoing care. */
+      include: z.string().regex(/^[0-9a-fA-F-]{36}(,[0-9a-fA-F-]{36}){0,59}$/).optional(),
+    }),
+  }),
   handler(async (req, res) => {
     const day = (req.query.date as string | undefined) ?? addDays(todayLocal(), 1);
     // Every physio can see and plan the whole clinic; optionally narrow to one.
     const onlyTherapist = req.query.therapistId as string | undefined;
+    const extraIds = ((req.query.include as string | undefined) ?? "").split(",").filter(Boolean);
+    const extra = new Set(extraIds);
     const mine = onlyTherapist;
     const range = dayRange(day);
 
@@ -112,22 +121,28 @@ plannerRouter.get(
       where: {
         deletedAt: null,
         id: { notIn: bookedIds },
-        AND: [
-          { OR: ongoing },
-          ...(onlyTherapist
-            ? [
-                {
-                  OR: [
-                    { primaryTherapistId: onlyTherapist },
-                    { treatmentPlans: { some: { status: "ACTIVE" as const, therapistId: onlyTherapist } } },
-                    // Physios also see patients they can cover for an away colleague.
-                    ...(mine && awayIds.length
-                      ? [{ primaryTherapistId: { in: awayIds } }, { treatmentPlans: { some: { status: "ACTIVE" as const, therapistId: { in: awayIds } } } }]
-                      : []),
-                  ],
-                },
-              ]
-            : []),
+        OR: [
+          {
+            AND: [
+              { OR: ongoing },
+              ...(onlyTherapist
+                ? [
+                    {
+                      OR: [
+                        { primaryTherapistId: onlyTherapist },
+                        { treatmentPlans: { some: { status: "ACTIVE" as const, therapistId: onlyTherapist } } },
+                        // Physios also see patients they can cover for an away colleague.
+                        ...(mine && awayIds.length
+                          ? [{ primaryTherapistId: { in: awayIds } }, { treatmentPlans: { some: { status: "ACTIVE" as const, therapistId: { in: awayIds } } } }]
+                          : []),
+                      ],
+                    },
+                  ]
+                : []),
+            ],
+          },
+          // Patients added by hand are always listed (unless already booked that day).
+          ...(extraIds.length ? [{ id: { in: extraIds } }] : []),
         ],
       },
       select: {
@@ -204,13 +219,15 @@ plannerRouter.get(
         const plan = c.treatmentPlans[0] ?? null;
         const sessionsBooked = plan ? sessionsBy.get(plan.id) ?? 0 : 0;
         const planFull = !!plan && sessionsBooked >= plan.prescribedSessions;
-        const type: AppointmentType = plan && !planFull ? "THERAPY_SESSION" : "FOLLOW_UP_CONSULTATION";
+        const s = stats.get(c.id);
         const past = historyBy.get(c.id) ?? [];
+        // No plan: a patient who has never been seen starts with an initial consultation, others with a follow-up.
+        const type: AppointmentType = plan && !planFull ? "THERAPY_SESSION" : (s?.completedVisits ?? 0) === 0 && past.length === 0 ? "INITIAL_CONSULTATION" : "FOLLOW_UP_CONSULTATION";
         const usualTime = mode(past.map((p) => p.time));
         const regularId = plan?.therapistId ?? c.primaryTherapistId ?? mode(past.map((p) => p.therapistId));
         const regularAway = !!regularId && awayWhy.has(regularId);
         // A physio's view: their own patients, plus patients whose regular physio is away.
-        if (mine && !(c.primaryTherapistId === mine || plan?.therapistId === mine || regularAway)) return null;
+        if (mine && !extra.has(c.id) && !(c.primaryTherapistId === mine || plan?.therapistId === mine || regularAway)) return null;
         // In a physio's own view they plan with themselves (covering if the regular physio is
         // away). In the clinic view: the regular physio, or — if they're away — whoever has a free
         // slot nearest the patient's usual time.
@@ -223,7 +240,6 @@ plannerRouter.get(
         // Suggest the usual time with that physio; otherwise their nearest free slot.
         const { slot, exact } = therapistId && !onLeave.has(therapistId) ? bestSlot(therapistId, usualTime) : { slot: null, exact: false };
         if (slot) taken.add(slot.id);
-        const s = stats.get(c.id);
         return {
           patient: { id: c.id, patientCode: c.patientCode, firstName: c.firstName, lastName: c.lastName, phone: c.phone },
           category: s?.category ?? "NEW",

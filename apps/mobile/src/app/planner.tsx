@@ -1,17 +1,19 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { goBack, RequireRole, SectionTitle, Sheet } from "@/components/form";
 import { slotStyles, SlotLegend } from "@/components/slot-legend";
-import { Badge, Button, Card, Empty, ErrorBox, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
+import { Badge, Button, Card, Empty, ErrorBox, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { addDays, clock, date, dayParts, fullName, hhmm, label, time, today } from "@/lib/format";
 import { usePlannerStore, type PlanPick } from "@/lib/planner-store";
+import { qk } from "@/lib/query-keys";
 import { usePlanner } from "@/lib/queries";
 import { useAction } from "@/lib/refresh";
 import { useAuth } from "@/lib/auth";
-import { CATEGORY_LABEL, type PlannerAppointment, type PlannerBookResult, type PlannerCandidate, type PlannerDay, type PlannerSlot, type PlannerTherapist } from "@/lib/types";
+import { CATEGORY_LABEL, type PatientListItem, type PlannerAppointment, type PlannerBookResult, type PlannerCandidate, type PlannerDay, type PlannerSlot, type PlannerTherapist } from "@/lib/types";
 import { colors, radius, space } from "@/theme";
 
 /**
@@ -35,8 +37,10 @@ function PlannerScreen() {
   const [picking, setPicking] = useState<PlannerCandidate | null>(null);
   const [moving, setMoving] = useState<PlannerAppointment | null>(null);
   const [result, setResult] = useState<PlannerBookResult | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState<string[]>([]); // patients added by hand for this day
 
-  const q = usePlanner(day);
+  const q = usePlanner(day, undefined, added);
   const draft = usePlannerStore((s) => s.days[day] ?? EMPTY);
   // The server gives a physio only their own day; the Super Admin sees every physio.
   const isPhysio = useAuth((s) => s.user?.role === "PHYSIOTHERAPIST");
@@ -110,6 +114,7 @@ function PlannerScreen() {
               onPress={() => {
                 setDay(d);
                 setResult(null);
+                setAdded([]);
               }}
               accessibilityRole="button"
               accessibilityState={{ selected: on }}
@@ -137,23 +142,28 @@ function PlannerScreen() {
           <View style={{ gap: space.sm }}>
             <SectionTitle
               action={
-                toPlan.length ? (
-                  <Pressable
-                    onPress={() => setAll(day, toPlan.filter((c) => draft[c.patient.id]?.slotId).map((c) => c.patient.id), ready.length < toPlan.filter((c) => draft[c.patient.id]?.slotId).length)}
-                    hitSlop={8}
-                  >
-                    <Text weight="semibold" style={{ color: colors.gold700, fontSize: 13 }}>
-                      {ready.length < toPlan.filter((c) => draft[c.patient.id]?.slotId).length ? "Select all" : "Clear"}
-                    </Text>
+                <Row gap={space.lg}>
+                  <Pressable onPress={() => setAdding(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Add a patient to the plan">
+                    <Text weight="semibold" style={{ color: colors.gold700, fontSize: 13 }}>+ Add patient</Text>
                   </Pressable>
-                ) : undefined
+                  {toPlan.length ? (
+                    <Pressable
+                      onPress={() => setAll(day, toPlan.filter((c) => draft[c.patient.id]?.slotId).map((c) => c.patient.id), ready.length < toPlan.filter((c) => draft[c.patient.id]?.slotId).length)}
+                      hitSlop={8}
+                    >
+                      <Text weight="semibold" style={{ color: colors.gold700, fontSize: 13 }}>
+                        {ready.length < toPlan.filter((c) => draft[c.patient.id]?.slotId).length ? "Select all" : "Clear"}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </Row>
               }
             >
               To book · {toPlan.length}
             </SectionTitle>
             {toPlan.length === 0 ? (
               <Card>
-                <Empty icon="checkmark-done-outline" title="Everyone is booked" message={`No patients in ongoing care are waiting for a visit on ${date(`${day}T06:00:00Z`)}.`} />
+                <Empty icon="checkmark-done-outline" title="Nobody to plan yet" message={`No patients in ongoing care are waiting for a visit on ${date(`${day}T06:00:00Z`)}. Tap "+ Add patient" to plan anyone yourself.`} />
               </Card>
             ) : (
               toPlan.map((c) => (
@@ -178,6 +188,16 @@ function PlannerScreen() {
             <Button title={`Book ${ready.length} visit${ready.length > 1 ? "s" : ""}`} variant="gold" icon="calendar-outline" onPress={() => book.mutate()} loading={book.isPending} />
           ) : null}
 
+          <AddPatientSheet
+            open={adding}
+            onClose={() => setAdding(false)}
+            listed={new Set(data.toPlan.map((c) => c.patient.id))}
+            bookedThatDay={new Set(data.appointments.map((a) => a.patient.id))}
+            onAdd={(id) => {
+              setAdded((a) => (a.includes(id) ? a : [...a, id]));
+              setAdding(false);
+            }}
+          />
           <SlotSheet
             key={`pick-${picking?.patient.id ?? "none"}`}
             title={picking ? `Physio & time · ${fullName(picking.patient)}` : ""}
@@ -214,6 +234,40 @@ function PlannerScreen() {
         </>
       ) : null}
     </Screen>
+  );
+}
+
+/* ─────────────── Add a patient by hand ─────────────── */
+
+/** Search any patient and add them to the plan, even if they aren't in ongoing care yet. */
+function AddPatientSheet({ open, onClose, listed, bookedThatDay, onAdd }: { open: boolean; onClose: () => void; listed: Set<string>; bookedThatDay: Set<string>; onAdd: (patientId: string) => void }) {
+  const [search, setSearch] = useState("");
+  const patients = useQuery({
+    queryKey: qk.patients.list("planner-add", { search: search.trim() }),
+    queryFn: () => api.page<PatientListItem>("/patients", { search: search.trim() || undefined, limit: 10 }),
+    enabled: open,
+    placeholderData: keepPreviousData,
+  });
+  return (
+    <Sheet open={open} onClose={onClose} title="Add a patient to the plan">
+      <Input value={search} onChangeText={setSearch} placeholder="Search name, phone or MH-P code" autoCorrect={false} />
+      {patients.isLoading ? <Loading /> : null}
+      {(patients.data?.data ?? []).map((p) => {
+        const inList = listed.has(p.id);
+        const booked = bookedThatDay.has(p.id);
+        const off = inList || booked;
+        return (
+          <Pressable key={p.id} disabled={off} onPress={() => onAdd(p.id)} accessibilityRole="button" style={[styles.addRow, off && { opacity: 0.55 }]}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text weight="semibold" numberOfLines={1}>{fullName(p)}</Text>
+              <Muted style={{ fontSize: 12 }}>{p.patientCode}{p.primaryTherapist ? ` · ${p.primaryTherapist.user.name}` : ""}</Muted>
+            </View>
+            {booked ? <Badge status="SCHEDULED" text="Booked that day" /> : inList ? <Badge status="ACTIVE" text="Already listed" /> : <Ionicons name="add-circle" size={24} color={colors.gold500} />}
+          </Pressable>
+        );
+      })}
+      {patients.data && patients.data.data.length === 0 ? <Muted>No patient found.</Muted> : null}
+    </Sheet>
   );
 }
 
@@ -291,7 +345,7 @@ function CandidateCard({ c, pick, slot, therapistName, onToggle, onPick }: { c: 
             {c.plan.full ? "Plan fully booked → follow-up visit" : label(c.type)} · {c.plan.title} · {c.plan.sessionsBooked}/{c.plan.prescribedSessions} booked · {c.plan.frequencyPerWeek}×/week
           </Muted>
         ) : (
-          <Muted style={{ fontSize: 12 }}>No active plan → follow-up consultation</Muted>
+          <Muted style={{ fontSize: 12 }}>{c.type === "INITIAL_CONSULTATION" ? "New patient → initial consultation" : "No active plan → follow-up consultation"}</Muted>
         )}
         {c.type === "THERAPY_SESSION" ? (
           <Muted style={{ fontSize: 12, color: c.package ? colors.muted : colors.warning }}>
@@ -485,6 +539,7 @@ const styles = StyleSheet.create({
   physio: { minWidth: 130, padding: space.md, borderRadius: radius.md, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, gap: 4 },
   physioOn: { backgroundColor: colors.navy800, borderColor: colors.navy800 },
   pickRow: { flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.sm, borderRadius: radius.sm, backgroundColor: colors.navy50 },
+  addRow: { flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md, borderRadius: radius.md, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border },
   bookedRow: { paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider },
   moveBtn: { width: 32, height: 32, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.navy50 },
   chip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },

@@ -32,7 +32,6 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
   const mark = (k: string) => setTouched((x) => ({ ...x, [k]: true }));
 
   const errors: Record<string, string | undefined> = {};
-  if (!f.firstName.trim()) errors.firstName = "First name is required";
   const cleanPhone = f.phone.replace(/\D/g, "");
   if (!cleanPhone) {
     errors.phone = "Mobile number is required";
@@ -57,7 +56,7 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
   const m = useMutation({
     mutationFn: () =>
       api.post<Patient>("/patients", {
-        firstName: f.firstName.trim(),
+        firstName: f.firstName.trim() || undefined,
         lastName: f.lastName.trim() || undefined,
         gender: f.gender,
         patientType: f.patientType,
@@ -91,16 +90,16 @@ export function PatientForm({ onCreated, onCancel, compact, submitLabel = "Add p
 
   return (
     <form onSubmit={submit} className={grid} noValidate>
-      <Field label="First name *" error={err("firstName")}><input className="input" value={f.firstName} onChange={set("firstName")} onBlur={() => mark("firstName")} autoFocus={compact} /></Field>
+      <Field label="First name" error={err("firstName")}><input className="input" value={f.firstName} onChange={set("firstName")} onBlur={() => mark("firstName")} autoFocus={compact} /></Field>
       <Field label="Last name"><input className="input" value={f.lastName} onChange={set("lastName")} /></Field>
       <Field label="Phone *" error={err("phone")}><input className="input" inputMode="tel" placeholder="98765 43210" value={f.phone} onChange={set("phone")} onBlur={() => mark("phone")} /></Field>
-      <Field label="Patient type *">
+      <Field label="Patient type">
         <select className="input" value={f.patientType} onChange={set("patientType")}>
           <option value="REGULAR">Regular</option>
           <option value="WALK_IN">Walk-in</option>
         </select>
       </Field>
-      <Field label="Gender *">
+      <Field label="Gender">
         <select className="input" value={f.gender} onChange={set("gender")}><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select>
       </Field>
       <div className="grid grid-cols-[1fr_6rem] gap-2">

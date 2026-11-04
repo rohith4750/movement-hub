@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Switch } from "react-native";
 import { DobAgeFields, goBack, RegularPhysioField, RequireRole, SectionTitle } from "@/components/form";
 import { Button, Card, Chips, ErrorBox, Field, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, fieldErrors } from "@/lib/api";
 import { fullName } from "@/lib/format";
 import { qk } from "@/lib/query-keys";
 import { useQuery } from "@tanstack/react-query";
@@ -58,7 +58,6 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
   const mark = (k: string) => setTouched((x) => ({ ...x, [k]: true }));
 
   const errors: Record<string, string | undefined> = {};
-  if (!f.firstName.trim()) errors.firstName = "First name is required";
   const cleanPhone = f.phone.replace(/\D/g, "");
   if (!cleanPhone) {
     errors.phone = "Mobile number is required";
@@ -72,12 +71,10 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
     errors.emergencyPhone = "Enter a valid emergency phone number";
   }
 
-  const err = (k: string) => ((submitted || touched[k]) ? errors[k] : undefined);
-
   const save = useAction(
     () =>
       api.patch(`/patients/${patient.id}`, {
-        firstName: f.firstName.trim(),
+        firstName: f.firstName.trim() || undefined,
         lastName: f.lastName.trim() || undefined,
         gender,
         patientType,
@@ -94,6 +91,10 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
     { refresh: ["patients"], onSuccess: () => goBack({ pathname: "/patient/[id]", params: { id: patient.id } }) },
   );
 
+  // Fields the server rejected (e.g. this mobile number belongs to another patient) show under the field.
+  const server = fieldErrors(save.error);
+  const err = (k: string) => ((submitted || touched[k]) ? errors[k] : undefined) ?? server[k];
+
   const handleSave = () => {
     setSubmitted(true);
     if (Object.keys(errors).length > 0) return;
@@ -107,7 +108,7 @@ function EditPatientForm({ patient }: { patient: PatientDetail & { consentGiven?
 
       <Card style={{ gap: space.md }}>
         <SectionTitle>Personal details</SectionTitle>
-        <Field label="First name *" error={err("firstName")}>
+        <Field label="First name" error={err("firstName")}>
           <Input value={f.firstName} onChangeText={set("firstName")} onBlur={() => mark("firstName")} autoCapitalize="words" />
         </Field>
         <Field label="Last name">

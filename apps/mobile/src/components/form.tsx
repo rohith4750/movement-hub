@@ -311,9 +311,9 @@ export const goBack = (fallback: Parameters<typeof router.replace>[0] = "/") => 
 export function StatTile({ label, value, hint, good }: { label: string; value: string | number; hint?: string; good?: boolean }) {
   return (
     <View style={styles.stat}>
-      <Text weight="semibold" style={{ fontSize: 10, color: colors.muted, letterSpacing: 0.8, textTransform: "uppercase" }}>{label}</Text>
-      <Text weight="bold" style={{ fontSize: 22, color: good ? colors.success : colors.navy900, letterSpacing: -0.3 }} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
-      {hint ? <Muted style={{ fontSize: 10 }} numberOfLines={1}>{hint}</Muted> : null}
+      <Text weight="semibold" style={{ fontSize: 11, color: colors.muted, letterSpacing: 0.6, textTransform: "uppercase" }}>{label}</Text>
+      <Text weight="bold" style={{ fontSize: 28, color: good ? colors.success : colors.navy900, letterSpacing: -0.5 }} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+      {hint ? <Muted style={{ fontSize: 11 }} numberOfLines={1}>{hint}</Muted> : null}
     </View>
   );
 }
@@ -342,27 +342,27 @@ export function Bars({ rows }: { rows: { label: string; value: number; display?:
 const styles = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(5,10,36,0.55)" },
   sheetWrap: { flex: 1, justifyContent: "flex-end" },
-  sheet: { backgroundColor: colors.bg, borderTopLeftRadius: 4, borderTopRightRadius: 4, maxHeight: "92%", ...shadow },
-  grabber: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: colors.navy100, marginVertical: space.sm },
+  sheet: { backgroundColor: colors.bg, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, maxHeight: "92%", ...shadow },
+  grabber: { alignSelf: "center", width: 44, height: 5, borderRadius: 3, backgroundColor: colors.navy100, marginVertical: space.md },
   sheetFooter: { padding: space.lg, paddingTop: space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider, backgroundColor: colors.white },
   field: {
     flexDirection: "row",
     alignItems: "center",
     gap: space.sm,
-    backgroundColor: colors.white,
-    borderWidth: 1,
+    backgroundColor: colors.field,
+    borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: radius.md,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 12,
-    minHeight: 46,
+    minHeight: 52,
   },
   selectBox: { flex: 1, justifyContent: "center", padding: space.lg },
   selectCard: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, maxHeight: "75%", ...shadow },
   option: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 12, paddingHorizontal: space.sm, borderRadius: radius.sm },
-  listRow: { flexDirection: "row", alignItems: "center", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, ...shadow },
-  listIcon: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center" },
-  stat: { flexBasis: "47%", flexGrow: 1, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, borderLeftWidth: 3, borderLeftColor: colors.navy700, gap: 2, ...shadow },
+  listRow: { flexDirection: "row", alignItems: "center", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: 14, borderWidth: 1, borderColor: colors.border, ...shadow },
+  listIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center" },
+  stat: { flexBasis: "47%", flexGrow: 1, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, borderWidth: 1, borderColor: colors.border, gap: 4, ...shadow },
 });
 
 

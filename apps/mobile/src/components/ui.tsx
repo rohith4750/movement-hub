@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
-import type { ComponentProps, ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -17,6 +17,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
+import { notifyEdit } from "@/lib/form-activity";
 import { label as labelOf } from "@/lib/format";
 import { colors, fonts, radius, shadow, shadowStrong, space, statusColors } from "@/theme";
 
@@ -103,7 +104,6 @@ export function BrandHeader({ title, subtitle, right }: { title: string; subtitl
         </Row>
         {right}
       </Row>
-      <View pointerEvents="none" style={styles.goldRule} />
     </View>
   );
 }
@@ -175,14 +175,14 @@ export function Button({
 const buttonVariants: Record<Variant, { bg: string; fg: string; border: string }> = {
   primary: { bg: colors.navy800, fg: colors.white, border: colors.navy800 },
   gold: { bg: colors.gold500, fg: colors.navy950, border: colors.gold500 },
-  ghost: { bg: colors.white, fg: colors.navy800, border: colors.border },
-  danger: { bg: colors.white, fg: colors.danger, border: colors.danger },
+  ghost: { bg: colors.navy50, fg: colors.navy800, border: colors.navy50 },
+  danger: { bg: colors.dangerBg, fg: colors.danger, border: colors.dangerBg },
 };
 
 export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: string | null }) {
   return (
     <View style={{ gap: 6 }}>
-      <Caption>{label}</Caption>
+      <Text weight="semibold" style={{ fontSize: 13, color: colors.navy700 }}>{label}</Text>
       {children}
       {error ? <Text style={{ fontSize: 12, color: colors.danger, fontWeight: "500" }}>{error}</Text> : hint ? <Muted style={{ fontSize: 12 }}>{hint}</Muted> : null}
     </View>
@@ -190,7 +190,29 @@ export function Field({ label, children, hint, error }: { label: string; childre
 }
 
 export function Input(props: TextInputProps) {
-  return <TextInput placeholderTextColor="#9AA0BE" selectionColor={colors.navy600} {...props} style={[styles.input, props.multiline && { minHeight: 84, textAlignVertical: "top" }, props.style]} />;
+  const { onChangeText, onFocus, onBlur } = props;
+  const [focused, setFocused] = useState(false);
+  const changed = (t: string) => {
+    notifyEdit(); // clears the previous failed-submit error
+    if (onChangeText) onChangeText(t);
+  };
+  return (
+    <TextInput
+      placeholderTextColor="#A3A9C4"
+      selectionColor={colors.navy600}
+      {...props}
+      onChangeText={changed}
+      onFocus={(e) => {
+        setFocused(true);
+        if (onFocus) onFocus(e);
+      }}
+      onBlur={(e) => {
+        setFocused(false);
+        if (onBlur) onBlur(e);
+      }}
+      style={[styles.input, focused && styles.inputFocused, props.multiline && { minHeight: 84, textAlignVertical: "top" }, props.style]}
+    />
+  );
 }
 
 /** Horizontal choice chips (segmented control). */
@@ -205,7 +227,7 @@ export function Chips<T extends string>({ options, value, onChange }: { options:
             onPress={() => onChange(o.value)}
             accessibilityRole="button"
             accessibilityState={{ selected: on }}
-            style={[styles.chip, on && { backgroundColor: colors.navy800, borderColor: colors.navy800 }]}
+            style={[styles.chip, on && styles.chipOn]}
           >
             <Text weight={on ? "semibold" : "medium"} style={{ fontSize: 13, color: on ? colors.white : colors.navy800 }}>{o.label}</Text>
           </Pressable>
@@ -220,8 +242,8 @@ export function Chips<T extends string>({ options, value, onChange }: { options:
 export function Badge({ status, text }: { status: string; text?: string }) {
   const c = statusColors[status] ?? { bg: "#F1F5F9", fg: "#475569" };
   return (
-    // Outlined in its own colour so a status reads clearly, not as a faint pastel chip.
-    <View style={[styles.badge, { backgroundColor: c.bg, borderColor: c.fg }]}>
+    <View style={[styles.badge, { backgroundColor: c.bg }]}>
+      <View style={[styles.badgeDot, { backgroundColor: c.fg }]} />
       <Text weight="semibold" style={{ color: c.fg, fontSize: 11 }}>{text ?? labelOf(status)}</Text>
     </View>
   );
@@ -285,31 +307,33 @@ const styles = StyleSheet.create({
   text: { color: colors.text, fontSize: 14 },
   screen: { flex: 1, backgroundColor: colors.bg },
   screenContent: { padding: space.lg, gap: space.lg, paddingBottom: space.xl * 2 },
-  card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, borderWidth: 1, borderColor: colors.border, gap: space.sm, ...shadow },
-  cardGold: { borderColor: colors.gold300, borderTopWidth: 3, borderTopColor: colors.gold500 },
-  brandHeader: { backgroundColor: colors.navy900, borderRadius: radius.xl, padding: space.lg, paddingVertical: 20, overflow: "hidden", ...shadowStrong },
+  card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: 18, borderWidth: 1, borderColor: colors.border, gap: space.sm, ...shadow },
+  cardGold: { backgroundColor: "#FCF8EC", borderColor: colors.gold300 },
+  brandHeader: { backgroundColor: colors.navy800, borderRadius: radius.xl, padding: 20, paddingVertical: 22, overflow: "hidden", ...shadowStrong },
   ringLarge: { position: "absolute", right: -60, top: -70, width: 190, height: 190, borderRadius: 95, borderWidth: 28, borderColor: "rgba(255,255,255,0.04)" },
   ringSmall: { position: "absolute", right: 40, bottom: -50, width: 90, height: 90, borderRadius: 45, backgroundColor: "rgba(201,161,74,0.08)" },
-  goldRule: { position: "absolute", left: 0, right: 0, bottom: 0, height: 3, backgroundColor: colors.gold500, opacity: 0.9 },
-  logoRing: { padding: 2, borderRadius: 24, borderWidth: 1.5, borderColor: "rgba(229,198,127,0.55)" },
+  logoRing: { padding: 3, borderRadius: 26, backgroundColor: "rgba(255,255,255,0.10)" },
   topBar: { paddingVertical: space.sm, gap: space.md },
-  iconBtn: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.white, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border, ...shadow },
-  button: { borderRadius: radius.md, paddingVertical: 13, paddingHorizontal: 18, borderWidth: 1, alignItems: "center", justifyContent: "center", minHeight: 48 },
-  buttonLift: { shadowColor: "#0A1033", shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  iconBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.white, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border, ...shadow },
+  button: { borderRadius: radius.md + 2, paddingVertical: 14, paddingHorizontal: 20, borderWidth: 1, alignItems: "center", justifyContent: "center", minHeight: 52 },
+  buttonLift: { shadowColor: "#1C2670", shadowOpacity: 0.28, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
   input: {
-    backgroundColor: colors.white,
-    borderWidth: 1,
+    backgroundColor: colors.field,
+    borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: radius.md,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 12,
-    minHeight: 48,
+    minHeight: 52,
     fontSize: 15,
     color: colors.text,
     fontFamily: fonts.regular,
   },
-  chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
-  badge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.sm, borderWidth: 1, alignSelf: "flex-start" },
-  errorBox: { backgroundColor: colors.dangerBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: colors.danger },
-  emptyIcon: { width: 60, height: 60, borderRadius: 12, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center" },
+  inputFocused: { backgroundColor: colors.white, borderColor: colors.navy500 },
+  chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
+  chipOn: { backgroundColor: colors.navy800, borderColor: colors.navy800 },
+  badge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, alignSelf: "flex-start" },
+  badgeDot: { width: 6, height: 6, borderRadius: 3 },
+  errorBox: { backgroundColor: colors.dangerBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: "rgba(225,29,72,0.25)" },
+  emptyIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.gold100, alignItems: "center", justifyContent: "center" },
 });

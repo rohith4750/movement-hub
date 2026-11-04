@@ -30,10 +30,12 @@ const address = z.object({
   isDefault: z.boolean().default(false),
 });
 
+// Only the mobile number is required. A missing name becomes "Patient 1234" (last 4 digits) on create,
+// and a missing gender becomes OTHER, so reception can register someone quickly and fill in the rest later.
 const patientBody = z.object({
-  firstName: z.string().min(1),
+  firstName: z.string().trim().min(1).optional(),
   lastName: z.string().optional(),
-  gender: z.enum(["MALE", "FEMALE", "OTHER"]),
+  gender: z.enum(["MALE", "FEMALE", "OTHER"]).default("OTHER"),
   patientType: z.enum(["REGULAR", "WALK_IN"]).default("REGULAR"),
   dateOfBirth: date.optional(),
   phone,
@@ -134,6 +136,7 @@ patientRouter.post(
       tx.patient.create({
         data: {
           ...data,
+          firstName: data.firstName ?? `Patient ${data.phone.slice(-4)}`,
           primaryTherapistId: primaryTherapistId ?? undefined,
           branchId,
           patientCode: await nextCode(tx, "patient"),

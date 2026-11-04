@@ -3,7 +3,7 @@ import { useState } from "react";
 import { PinFields, pinProblem } from "@/components/admin-pin";
 import { RequireRole, SectionTitle, goBack } from "@/components/form";
 import { Button, Card, ErrorBox, Field, Input, Muted, Screen, TopBar } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, fieldErrors } from "@/lib/api";
 import { useAction } from "@/lib/refresh";
 import { colors, space } from "@/theme";
 
@@ -26,6 +26,8 @@ function NewStaff() {
     onSuccess: () => router.replace("/staff"),
   });
 
+  const server = fieldErrors(create.error); // e.g. "This email address is already in use"
+
   const missing = f.name.trim().length < 2
     ? "Enter the name"
     : !/\S+@\S+\.\S+/.test(f.email.trim())
@@ -41,8 +43,8 @@ function NewStaff() {
       <TopBar title="Add Super Admin" onBack={() => goBack("/staff")} />
       <Card style={{ gap: space.md }}>
         <Field label="Name *"><Input value={f.name} onChangeText={(t) => setF({ ...f, name: t })} autoCapitalize="words" /></Field>
-        <Field label="Email *"><Input value={f.email} onChangeText={(t) => setF({ ...f, email: t })} keyboardType="email-address" autoCapitalize="none" autoComplete="email" /></Field>
-        <Field label="Mobile number *"><Input value={f.phone} onChangeText={(t) => setF({ ...f, phone: t })} keyboardType="phone-pad" placeholder="98765 43210" /></Field>
+        <Field label="Email *" error={server.email}><Input value={f.email} onChangeText={(t) => setF({ ...f, email: t })} keyboardType="email-address" autoCapitalize="none" autoComplete="email" /></Field>
+        <Field label="Mobile number *" error={server.phone}><Input value={f.phone} onChangeText={(t) => setF({ ...f, phone: t })} keyboardType="phone-pad" placeholder="98765 43210" /></Field>
         <Muted style={{ fontSize: 12 }}>Creates a Super Admin (full access). Add physiotherapists from Therapists so their schedule is set up.</Muted>
       </Card>
 

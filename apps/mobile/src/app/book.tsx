@@ -7,7 +7,7 @@ import { DobAgeFields, RegularPhysioField, useOwnTherapistId } from "@/component
 import { CategoryBadge, VisitLine } from "@/components/patient-visits";
 import { slotStyles, SlotLegend } from "@/components/slot-legend";
 import { Badge, Button, Card, Chips, Empty, ErrorBox, Field, H2, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, fieldErrors } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { ageFrom, clinicDay, clinicHour, date, dayParts, fullName, hhmm, label, time, today } from "@/lib/format";
 import { useActivePlans, useAppointment, usePatient, useTherapists } from "@/lib/queries";
@@ -663,7 +663,7 @@ function QuickPatientForm({ onCreated, onCancel }: { onCreated: (id: string) => 
   const save = useAction(
     () =>
       api.post<{ id: string }>("/patients", {
-        firstName: f.firstName.trim(),
+        firstName: f.firstName.trim() || undefined,
         lastName: f.lastName.trim() || undefined,
         gender,
         patientType,
@@ -674,19 +674,20 @@ function QuickPatientForm({ onCreated, onCancel }: { onCreated: (id: string) => 
       }),
     { refresh: ["patients"], onSuccess: (p) => onCreated(p.id) },
   );
-  const problem = !f.firstName.trim() ? "Enter the first name" : f.phone.replace(/\D/g, "").length < 10 ? "Enter a valid mobile number" : null;
+  const problem = f.phone.replace(/\D/g, "").length < 10 ? "Enter a valid 10-digit mobile number" : null;
+  const server = fieldErrors(save.error); // e.g. "This mobile number is already in use"
 
   return (
     <View style={{ gap: space.md }}>
       <Row gap={space.sm}>
-        <View style={{ flex: 1 }}><Field label="First name *"><Input value={f.firstName} onChangeText={(t) => setF({ ...f, firstName: t })} autoFocus /></Field></View>
+        <View style={{ flex: 1 }}><Field label="First name"><Input value={f.firstName} onChangeText={(t) => setF({ ...f, firstName: t })} autoFocus /></Field></View>
         <View style={{ flex: 1 }}><Field label="Last name"><Input value={f.lastName} onChangeText={(t) => setF({ ...f, lastName: t })} /></Field></View>
       </Row>
-      <Field label="Mobile *"><Input value={f.phone} onChangeText={(t) => setF({ ...f, phone: t })} keyboardType="phone-pad" placeholder="98765 43210" /></Field>
-      <Field label="Patient type *">
+      <Field label="Mobile *" error={server.phone}><Input value={f.phone} onChangeText={(t) => setF({ ...f, phone: t })} keyboardType="phone-pad" placeholder="98765 43210" /></Field>
+      <Field label="Patient type">
         <Chips<"REGULAR" | "WALK_IN"> value={patientType} onChange={setPatientType} options={[{ value: "REGULAR", label: "Regular" }, { value: "WALK_IN", label: "Walk-in" }]} />
       </Field>
-      <Field label="Gender *">
+      <Field label="Gender">
         <Chips<Gender> value={gender} onChange={setGender} options={[{ value: "FEMALE", label: "Female" }, { value: "MALE", label: "Male" }, { value: "OTHER", label: "Other" }]} />
       </Field>
       <DobAgeFields dob={f.dateOfBirth} onDob={(v) => setF({ ...f, dateOfBirth: v })} />

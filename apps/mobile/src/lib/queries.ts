@@ -7,9 +7,14 @@ import type {
   Consultation,
   ConsultationHistoryEntry,
   Dashboard,
+  DateRange,
+  FinanceAnalytics,
   Invoice,
   Me,
   MonthlyRow,
+  OperationsAnalytics,
+  OutcomeAnalytics,
+  PatientAnalytics,
   PatientDetail,
   PlannerDay,
   Therapist,
@@ -51,10 +56,11 @@ export function useAppointment(id: string | undefined) {
 }
 
 /** The day planner for a date (tomorrow by default on the screen). */
-export function usePlanner(date: string, therapistId?: string) {
+/** `include`: patients the front desk added by hand, planned even if not in ongoing care. */
+export function usePlanner(date: string, therapistId?: string, include: string[] = []) {
   return useQuery({
-    queryKey: qk.planner(date, therapistId),
-    queryFn: () => api.get<PlannerDay>("/planner", { date, therapistId }),
+    queryKey: qk.planner(date, therapistId, include),
+    queryFn: () => api.get<PlannerDay>("/planner", { date, therapistId, include: include.join(",") }),
     // Several people plan at once (three physios + front desk): keep it fresh while it's open.
     refetchInterval: 60_000,
     staleTime: 15_000,
@@ -133,4 +139,23 @@ export function useInvoices(status?: string) {
 
 export function useMonthlyReport(months = 6, enabled = true) {
   return useQuery({ queryKey: qk.report("monthly", { months }), queryFn: () => api.get<MonthlyRow[]>("/reports/monthly", { months }), enabled, staleTime: 10 * 60_000 });
+}
+
+/* Analytics tabs of the Reports screen (admin; finance also accountant). Slow-moving, so cached for a few minutes. */
+export function usePatientAnalytics(range: DateRange, enabled = true) {
+  return useQuery({ queryKey: qk.report("a-patients", { ...range }), queryFn: () => api.get<PatientAnalytics>("/reports/patients", { ...range }), enabled, staleTime: 5 * 60_000 });
+}
+export function useOutcomeAnalytics(range: DateRange, enabled = true) {
+  return useQuery({ queryKey: qk.report("a-outcomes", { ...range }), queryFn: () => api.get<OutcomeAnalytics>("/reports/outcomes", { ...range }), enabled, staleTime: 5 * 60_000 });
+}
+export function useOperationsAnalytics(range: DateRange, enabled = true) {
+  return useQuery({ queryKey: qk.report("a-operations", { ...range }), queryFn: () => api.get<OperationsAnalytics>("/reports/operations", { ...range }), enabled, staleTime: 5 * 60_000 });
+}
+export function useFinanceAnalytics(range: DateRange, therapistId?: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.report("a-finance", { ...range, therapistId: therapistId ?? "all" }),
+    queryFn: () => api.get<FinanceAnalytics>("/reports/finance", { ...range, therapistId }),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
 }

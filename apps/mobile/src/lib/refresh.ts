@@ -1,4 +1,6 @@
 import { useMutation, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { onEdit } from "./form-activity";
 
 /**
  * After a save, refresh exactly the data it can change — by GROUP, never by hand-picked keys.
@@ -52,7 +54,7 @@ export function useAction<TData = unknown, TVars = void>(
   opts: { refresh?: RefreshGroup[]; onSuccess?: (data: TData, vars: TVars) => void; onError?: (e: Error, vars: TVars) => void } = {},
 ) {
   const qc = useQueryClient();
-  return useMutation<TData, Error, TVars>({
+  const m = useMutation<TData, Error, TVars>({
     mutationFn: fn,
     onSuccess: (data, vars) => {
       if (opts.refresh?.length) void refresh(qc, ...opts.refresh);
@@ -60,4 +62,9 @@ export function useAction<TData = unknown, TVars = void>(
     },
     onError: opts.onError,
   });
+  // While an error is showing, the first edit to any field on the screen clears it.
+  const hasError = m.isError;
+  const reset = m.reset;
+  useEffect(() => (hasError ? onEdit(reset) : undefined), [hasError, reset]);
+  return m;
 }

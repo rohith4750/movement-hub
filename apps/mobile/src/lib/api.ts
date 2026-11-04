@@ -22,11 +22,39 @@ let refreshing: Promise<boolean> | null = null;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function fetchOnce(url: string, init: RequestInit) {
+/** When a response (any status) last came back: the connection was alive then. */
+let lastResponseAt = 0;
+const IDLE_MS = 20_000; // after this long without traffic, the pooled socket may be dead
+let warming: Promise<void> | null = null;
+
+/**
+ * Wake the connection before a real request. After the app sits idle (or comes back from the background)
+ * Android may reuse a dead socket, so the first request hangs for up to 20s and then fails, while the next
+ * one works instantly on a fresh socket. A tiny /health call absorbs that, in well under a second, so the
+ * user's submit never has to. Does nothing if the connection was used recently. Never throws.
+ */
+export function warmUp(force = false): Promise<void> {
+  if (!force && Date.now() - lastResponseAt < IDLE_MS) return Promise.resolve();
+  warming ??= (async () => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await fetchOnce(`${API_URL}/health`, { method: "GET" }, 6_000);
+        return;
+      } catch (e) {
+        if (!(e instanceof ApiError) || e.details !== "DROPPED") return; // a timeout or offline: let the real request report it
+      }
+    }
+  })().finally(() => (warming = null));
+  return warming;
+}
+
+async function fetchOnce(url: string, init: RequestInit, timeoutMs = TIMEOUT_MS) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: ctrl.signal });
+    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    lastResponseAt = Date.now();
+    return res;
   } catch (e) {
     const aborted = e instanceof Error && e.name === "AbortError";
     throw new ApiError(0, "NETWORK", aborted ? "The server took too long to respond. Please try again." : "Can't reach Movement Hub. Check your internet connection.", aborted ? "TIMEOUT" : "DROPPED");
@@ -91,6 +119,7 @@ function errorMessage(json: { error?: { code?: string; message?: string; details
 
 async function request<T>(method: string, path: string, body?: unknown, withMeta = false, retry = true): Promise<T> {
   const token = useAuth.getState().accessToken;
+  await warmUp();
   const res = await fetchWithTimeout(`${API_URL}${path}`, {
     method,
     headers: { "Content-Type": "application/json", Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -129,4 +158,26 @@ export const api = {
   del: <T>(path: string) => request<T>("DELETE", path),
 };
 
-export const messageOf = (e: unknown) => (e instanceof Error ? e.message : e ? String(e) : "");
+const FIELD_NAMES: Record<string, string> = { phone: "mobile number", email: "email address", pinLookup: "PIN" };
+
+/**
+ * Field-level messages from an API error, keyed by form field, so a form can show them under the right
+ * input: a duplicate ("This mobile number is already in use") or a rejected value from the server.
+ * Empty when the error isn't about specific fields.
+ */
+export function fieldErrors(error: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!(error instanceof ApiError)) return out;
+  const d = error.details;
+  if (error.code === "ALREADY_EXISTS" && d && typeof d === "object" && Array.isArray((d as { fields?: unknown }).fields)) {
+    for (const f of (d as { fields: unknown[] }).fields) out[String(f)] = `This ${FIELD_NAMES[String(f)] ?? String(f)} is already in use`;
+  } else if (error.code === "VALIDATION_ERROR" && Array.isArray(d)) {
+    for (const x of d as { path: string; message: string }[]) {
+      const key = x.path.split(".").pop() ?? x.path;
+      out[key] ??= x.message === "Invalid" ? "Invalid value" : x.message;
+    }
+  }
+  return out;
+}
+
+export const messageOf =(e: unknown) => (e instanceof Error ? e.message : e ? String(e) : "");

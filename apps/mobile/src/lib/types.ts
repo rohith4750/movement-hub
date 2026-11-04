@@ -282,7 +282,7 @@ export interface PlannerCandidate {
   completedVisits: number;
   plan: { id: string; planNo: string; title: string; frequencyPerWeek: number; prescribedSessions: number; sessionsBooked: number; full: boolean } | null;
   package: { id: string; name: string; remaining: number; expiryDate: string } | null;
-  type: "THERAPY_SESSION" | "FOLLOW_UP_CONSULTATION";
+  type: "THERAPY_SESSION" | "FOLLOW_UP_CONSULTATION" | "INITIAL_CONSULTATION";
   therapistId: string | null;
   therapistOnLeave: boolean;
   usualTime: string | null;
@@ -377,4 +377,86 @@ export interface MonthlyRow {
   scheduled: number;
   noShows: number;
   newPatients: number;
+}
+
+/* ─────────────── Analytics (Reports → Patients / Outcomes / Operations / Finance) ─────────────── */
+
+export interface DateRange {
+  from: string;
+  to: string;
+}
+
+export interface PatientAnalytics {
+  range: DateRange;
+  totalPatients: number;
+  newPatients: number;
+  activePatients: number;
+  returningPatients: number;
+  returningRate: number;
+  dropOffDays: number;
+  dropOffCount: number;
+  dropOffCapped: boolean;
+  dropOffs: { id: string; patientCode: string; firstName: string; lastName: string | null; phone: string; lastVisit: string; visits: number; daysAgo: number }[];
+  referralSources: { name: string; count: number }[];
+  gender: { gender: string; count: number }[];
+  ageGroups: { bucket: string; count: number }[];
+  patientTypes: { type: string; count: number }[];
+}
+
+export interface OutcomeAnalytics {
+  range: DateRange;
+  sessionsCompleted: number;
+  sessionsMeasured: number;
+  avgPainBefore: number | null;
+  avgPainAfter: number | null;
+  avgPainReduction: number | null;
+  reliefRate: number;
+  avgProgressRating: number | null;
+  activePlans: number;
+  completedPlans: number;
+  outcomes: { goalsMet: number; partiallyMet: number; notMet: number; discontinued: number; notRecorded: number };
+  goalsMetRate: number;
+  avgPrescribedSessions: number | null;
+  avgSessionsDone: number | null;
+  avgFinalPain: number | null;
+  byTherapist: { therapistId: string; name: string; sessions: number; avgReduction: number | null; reliefRate: number; avgRating: number | null }[];
+}
+
+export interface OperationsAnalytics {
+  range: DateRange;
+  totalVisits: number;
+  busiestDay: string | null;
+  busiestHour: number | null;
+  perDay: { day: string; count: number }[];
+  perHour: { hour: number; count: number }[];
+  heatmap: { hours: number[]; days: string[]; cells: { day: string; hour: number; count: number }[] };
+  slotFillRate: number;
+  slotsBooked: number;
+  slotsUnused: number;
+  homeVisitShare: number;
+  byType: { type: string; count: number }[];
+  avgSessionMinutes: number | null;
+  sessionsTimed: number;
+  perTherapist: { therapistId: string; name: string; colorTag: string | null; visits: number; completed: number; noShowRate: number; cancelRate: number }[];
+}
+
+export interface FinanceAnalytics {
+  range: DateRange;
+  previousRange: DateRange;
+  netRevenue: number;
+  previousNetRevenue: number;
+  changePct: number | null;
+  invoicesIssued: number;
+  billed: number;
+  collected: number;
+  stillDue: number;
+  collectionRate: number;
+  paymentMethods: { method: string; total: number; count: number; share: number }[];
+  completedVisits: number;
+  revenuePerVisit: number | null;
+  payingPatients: number;
+  revenuePerPatient: number | null;
+  packagesSold: number;
+  packageRevenue: number;
+  packageSessionsRedeemed: number | null;
 }

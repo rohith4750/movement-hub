@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Switch, View } from "react-native";
 import { DobAgeFields, goBack, RegularPhysioField, RequireRole, SectionTitle, useOwnTherapistId } from "@/components/form";
 import { Button, Card, Chips, ErrorBox, Field, Input, Row, Screen, Text, TopBar } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, fieldErrors } from "@/lib/api";
 import { useAction } from "@/lib/refresh";
 import { colors, space } from "@/theme";
 
@@ -46,7 +46,6 @@ function NewPatientForm() {
   const mark = (k: string) => setTouched((x) => ({ ...x, [k]: true }));
 
   const errors: Record<string, string | undefined> = {};
-  if (!f.firstName.trim()) errors.firstName = "First name is required";
   const cleanPhone = f.phone.replace(/\D/g, "");
   if (!cleanPhone) {
     errors.phone = "Mobile number is required";
@@ -66,12 +65,10 @@ function NewPatientForm() {
     }
   }
 
-  const err = (k: string) => ((submitted || touched[k]) ? errors[k] : undefined);
-
   const save = useAction(
     () =>
       api.post<{ id: string }>("/patients", {
-        firstName: f.firstName.trim(),
+        firstName: f.firstName.trim() || undefined,
         lastName: f.lastName.trim() || undefined,
         gender,
         patientType: f.patientType,
@@ -86,6 +83,10 @@ function NewPatientForm() {
     { refresh: ["patients"], onSuccess: (p) => router.replace({ pathname: "/patient/[id]", params: { id: p.id } }) },
   );
 
+  // Fields the server rejected (e.g. this mobile number already belongs to another patient) show under the field.
+  const server = fieldErrors(save.error);
+  const err = (k: string) => ((submitted || touched[k]) ? errors[k] : undefined) ?? server[k];
+
   const handleRegister = () => {
     setSubmitted(true);
     if (Object.keys(errors).length > 0) return;
@@ -98,7 +99,7 @@ function NewPatientForm() {
 
       <Card style={{ gap: space.md }}>
         <SectionTitle>Personal details</SectionTitle>
-        <Field label="First name *" error={err("firstName")}>
+        <Field label="First name" error={err("firstName")}>
           <Input value={f.firstName} onChangeText={set("firstName")} onBlur={() => mark("firstName")} autoCapitalize="words" autoComplete="given-name" />
         </Field>
         <Field label="Last name">
@@ -107,10 +108,10 @@ function NewPatientForm() {
         <Field label="Mobile number *" error={err("phone")}>
           <Input value={f.phone} onChangeText={set("phone")} onBlur={() => mark("phone")} keyboardType="phone-pad" placeholder="98765 43210" maxLength={18} />
         </Field>
-        <Field label="Patient type *">
+        <Field label="Patient type">
           <Chips<PatientType> value={f.patientType} onChange={(t) => setF((x) => ({ ...x, patientType: t }))} options={[{ value: "REGULAR", label: "Regular" }, { value: "WALK_IN", label: "Walk-in" }]} />
         </Field>
-        <Field label="Gender *">
+        <Field label="Gender">
           <Chips<Gender> value={gender} onChange={setGender} options={[{ value: "FEMALE", label: "Female" }, { value: "MALE", label: "Male" }, { value: "OTHER", label: "Other" }]} />
         </Field>
         <DobAgeFields dob={f.dateOfBirth} onDob={set("dateOfBirth")} clearable />

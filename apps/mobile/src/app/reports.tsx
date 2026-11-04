@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useQuery } from "@tanstack/react-query";
+import { useIsFetching, useQuery } from "@tanstack/react-query";
 import { useMonthlyReport } from "@/lib/queries";
 import { qk } from "@/lib/query-keys";
 import { TherapistFilter } from "@/components/therapist-filter";
@@ -7,9 +7,11 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Bars, DateField, goBack, RequireRole, SectionTitle, StatTile } from "@/components/form";
-import { Card, ErrorBox, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
+import { FinanceTab, OperationsTab, OutcomesTab, PatientsTab } from "@/components/analytics-tabs";
+import { Card, Chips, ErrorBox, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { hasRole, useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
+import { useRefresh } from "@/lib/refresh";
 import { date, fullName, inr, label, today } from "@/lib/format";
 import { colors, space } from "@/theme";
 
@@ -49,12 +51,18 @@ export default function Reports() {
   );
 }
 
+type ReportView = "overview" | "patients" | "outcomes" | "operations" | "finance";
+
 function ReportsScreen() {
   const user = useAuth((s) => s.user);
   const isAdmin = hasRole(user, "ADMIN");
   // Physios see what they collected from their own patients; the Super Admin can pick one physio.
   const isPhysio = user?.role === "PHYSIOTHERAPIST";
   const [physio, setPhysio] = useState("");
+  const [view, setView] = useState<ReportView>("overview");
+  const refreshAll = useRefresh();
+  // Any report query (overview or a tab) refreshing shows the pull-to-refresh spinner.
+  const fetching = useIsFetching({ predicate: (q) => q.queryKey[0] === "report" }) > 0;
   const who = isPhysio ? "me" : physio;
   const money = { therapistId: isPhysio ? undefined : physio || undefined };
   const [from, setFrom] = useState(() => `${today().slice(0, 7)}-01`);
@@ -72,7 +80,6 @@ function ReportsScreen() {
   const all = [revenue, appts, util, pkgs, due, monthly];
   const walkIns = appts.data?.bySource?.find((x) => x.source === "WALK_IN")?.count ?? 0;
   const ahead = appts.data?.bySource?.find((x) => x.source === "SCHEDULED")?.count ?? 0;
-  const refreshing = all.some((x) => x.isRefetching);
 
   // Collections per day (series is per day per payment method).
   const daily = Object.entries(
@@ -84,13 +91,31 @@ function ReportsScreen() {
   ).sort(([a], [b]) => a.localeCompare(b));
 
   return (
-    <Screen edges={["top", "bottom"]} refreshing={refreshing} onRefresh={() => all.forEach((x) => x.refetch())}>
+    <Screen edges={["top", "bottom"]} refreshing={fetching} onRefresh={() => refreshAll("billing")}>
       <TopBar title={isPhysio ? "My collections" : "Reports"} onBack={() => goBack("/more")} />
       {isPhysio ? (
         <Muted style={{ fontSize: 12 }}>Money in, packages and outstanding bills for your own patients.</Muted>
-      ) : (
+      ) : view === "overview" || view === "finance" ? (
         <TherapistFilter value={physio} onChange={setPhysio} />
-      )}
+      ) : null}
+
+      {!isPhysio ? (
+        <Chips<ReportView>
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "overview", label: "Overview" },
+            ...(isAdmin
+              ? [
+                  { value: "patients" as const, label: "Patients" },
+                  { value: "outcomes" as const, label: "Outcomes" },
+                  { value: "operations" as const, label: "Operations" },
+                ]
+              : []),
+            { value: "finance", label: "Finance" },
+          ]}
+        />
+      ) : null}
 
       <Card>
         <Row gap={space.sm} style={{ alignItems: "flex-start" }}>
@@ -101,6 +126,13 @@ function ReportsScreen() {
         <Muted style={{ fontSize: 12 }}>CSV export is available on the web portal (Reports).</Muted>
       </Card>
 
+      {view === "patients" && isAdmin ? <PatientsTab range={range} /> : null}
+      {view === "outcomes" && isAdmin ? <OutcomesTab range={range} /> : null}
+      {view === "operations" && isAdmin ? <OperationsTab range={range} /> : null}
+      {view === "finance" ? <FinanceTab range={range} therapistId={money.therapistId} /> : null}
+
+      {view === "overview" ? (
+        <>
       <View style={styles.grid}>
         <StatTile label="Net revenue" value={revenue.data ? inr(revenue.data.netRevenue) : "…"} hint="collected − refunds" />
         <StatTile label="Outstanding" value={due.data ? inr(due.data.totalDue) : "…"} hint={due.data ? `${due.data.count} invoices` : undefined} />
@@ -223,6 +255,8 @@ function ReportsScreen() {
           ))
         )}
       </Card>
+        </>
+      ) : null}
     </Screen>
   );
 }

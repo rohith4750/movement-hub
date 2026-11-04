@@ -20,6 +20,7 @@ import { paymentRouter, razorpayWebhookRouter, refundRouter } from "./modules/pa
 import { notificationRouter, whatsappWebhookRouter } from "./modules/notifications/notification.routes";
 import { documentRouter } from "./modules/documents/document.routes";
 import { reportRouter } from "./modules/reports/report.routes";
+import { analyticsRouter } from "./modules/reports/analytics.routes";
 import { plannerRouter } from "./modules/planner/planner.routes";
 import { auditRouter, branchRouter, settingsRouter } from "./modules/settings/settings.routes";
 import { unauthorized, notFound } from "./lib/http-error";
@@ -85,6 +86,7 @@ export function createApiHandler() {
   v1.use("/notifications", notificationRouter);
   v1.use("/documents", documentRouter);
   v1.use("/reports", reportRouter);
+  v1.use("/reports", analyticsRouter);
   v1.use("/planner", plannerRouter);
   v1.use("/settings", settingsRouter);
   v1.use("/branches", branchRouter);

@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Switch, View } from "react-native";
 import { PinFields, pinProblem } from "@/components/admin-pin";
 import { RequireRole, SectionTitle, goBack } from "@/components/form";
 import { Button, Card, ErrorBox, Field, Input, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, fieldErrors } from "@/lib/api";
 import { qk } from "@/lib/query-keys";
 import { useAction } from "@/lib/refresh";
 import { colors, radius, space } from "@/theme";
@@ -44,6 +44,8 @@ function NewTherapist() {
     { refresh: ["staff", "schedule"], onSuccess: (t) => router.replace({ pathname: "/therapist/[id]", params: { id: t.id } }) },
   );
 
+  const server = fieldErrors(create.error); // e.g. "This email address is already in use"
+
   const missing = !f.name.trim()
     ? "Enter the name"
     : !/\S+@\S+\.\S+/.test(f.email.trim())
@@ -61,8 +63,8 @@ function NewTherapist() {
       <TopBar title="Add physiotherapist" onBack={() => goBack("/therapists")} />
       <Card style={{ gap: space.md }}>
         <Field label="Full name *"><Input value={f.name} onChangeText={(t) => setF({ ...f, name: t })} autoCapitalize="words" /></Field>
-        <Field label="Email *"><Input value={f.email} onChangeText={(t) => setF({ ...f, email: t })} keyboardType="email-address" autoCapitalize="none" autoComplete="email" /></Field>
-        <Field label="Mobile number *"><Input value={f.phone} onChangeText={(t) => setF({ ...f, phone: t })} keyboardType="phone-pad" placeholder="98765 43210" /></Field>
+        <Field label="Email *" error={server.email}><Input value={f.email} onChangeText={(t) => setF({ ...f, email: t })} keyboardType="email-address" autoCapitalize="none" autoComplete="email" /></Field>
+        <Field label="Mobile number *" error={server.phone}><Input value={f.phone} onChangeText={(t) => setF({ ...f, phone: t })} keyboardType="phone-pad" placeholder="98765 43210" /></Field>
         <Row gap={space.sm} style={{ alignItems: "flex-start" }}>
           <View style={{ flex: 2 }}><Field label="Qualification *"><Input value={f.qualification} onChangeText={(t) => setF({ ...f, qualification: t })} /></Field></View>
           <View style={{ flex: 1 }}><Field label="Experience (yrs)"><Input value={f.experienceYears} onChangeText={(t) => setF({ ...f, experienceYears: t.replace(/\D/g, "").slice(0, 2) })} keyboardType="number-pad" /></Field></View>
