@@ -4,7 +4,7 @@ import { prisma, type Prisma } from "@movement-hub/database";
 import { created, handler, idParam, meta, ok, paginationQuery, paging, q } from "../../lib/http";
 import { audit } from "../../lib/audit";
 import { conflict, forbidden, unprocessable } from "../../lib/http-error";
-import { dayRange, todayLocal } from "../../lib/time";
+import { dateOnly, dayRange, todayLocal } from "../../lib/time";
 import { assertPatientAccess, authorize } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { transition } from "../appointments/appointment.service";
@@ -146,6 +146,28 @@ therapySessionRouter.patch(
   }),
 );
 
+/**
+ * Completing a session also fills in today's daily-progress entry for its plan: the pain after the session, and
+ * whether it went Improved / Same / Worse compared with before. Only empty fields are filled, so anything the
+ * physio already typed for today wins. Best effort: the session is already saved, so a failure is logged, not thrown.
+ */
+async function recordDailyProgress(req: Request, planId: string, before: number | null, after: number | null) {
+  if (after === null) return;
+  try {
+    const date = dateOnly(todayLocal());
+    const status = before === null ? null : after < before ? "IMPROVED" : after > before ? "WORSE" : "SAME";
+    const existing = await prisma.treatmentProgress.findUnique({ where: { treatmentPlanId_date: { treatmentPlanId: planId, date } } });
+    if (existing) {
+      const fill = { painScore: existing.painScore ?? after, status: existing.status ?? status };
+      if (fill.painScore !== existing.painScore || fill.status !== existing.status) await prisma.treatmentProgress.update({ where: { id: existing.id }, data: fill });
+    } else {
+      await prisma.treatmentProgress.create({ data: { treatmentPlanId: planId, date, painScore: after, status, recordedById: req.user!.id } });
+    }
+  } catch (e) {
+    console.error("[sessions] could not record daily progress:", e);
+  }
+}
+
 /** Complete: records outcome, completes the appointment and deducts one package session — atomically. */
 therapySessionRouter.post(
   "/:id/complete",
@@ -182,6 +204,7 @@ therapySessionRouter.post(
     if (s.treatmentPlanId) {
       const tp = await prisma.treatmentPlan.findUnique({ where: { id: s.treatmentPlanId }, select: { id: true, planNo: true, status: true, prescribedSessions: true } });
       if (tp?.status === "ACTIVE") {
+        await recordDailyProgress(req, tp.id, result.session.painBefore, result.session.painAfter);
         const done = await prisma.therapySession.count({ where: { treatmentPlanId: tp.id, status: "COMPLETED" } });
         plan = { id: tp.id, planNo: tp.planNo, completedSessions: done, prescribedSessions: tp.prescribedSessions, readyToComplete: done >= tp.prescribedSessions };
       }

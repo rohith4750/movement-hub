@@ -30,6 +30,9 @@ interface Progress {
   latestPain: number | null;
   painReduction: number | null;
   timeline: { id: string; sessionNumber: number | null; completedAt: string; painBefore: number | null; painAfter: number | null }[];
+  dailyLog: { date: string; painScore: number | null; status: "IMPROVED" | "SAME" | "WORSE" | null }[];
+  dailyCount: number;
+  dailyStatus: { improved: number; same: number; worse: number };
 }
 
 export default function PatientDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -102,6 +105,24 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
             ))}
           </div>
           <p className="mt-2 text-xs text-navy-500"><span className="mr-1 inline-block h-2 w-2 bg-navy-100" />Before session <span className="ml-3 mr-1 inline-block h-2 w-2 bg-gold-500" />After session</p>
+        </div>
+      )}
+
+      {progress.data && progress.data.dailyLog.length > 0 && (
+        <div className="card mb-6">
+          <h2 className="mb-3 font-bold">Daily check-ins</h2>
+          <div className="flex flex-wrap gap-1.5">
+            {progress.data.dailyLog.slice(-30).map((c) => (
+              <span
+                key={c.date}
+                title={`${c.date}: pain ${c.painScore ?? "not recorded"}${c.status ? `, ${c.status.toLowerCase()}` : ""}`}
+                className={`inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-xs font-semibold ${c.status === "IMPROVED" ? "bg-emerald-50 text-emerald-700" : c.status === "WORSE" ? "bg-red-50 text-red-700" : "bg-navy-50 text-navy-500"}`}
+              >
+                {c.painScore ?? "–"}
+              </span>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-navy-500">{progress.data.dailyStatus.improved} improved · {progress.data.dailyStatus.same} same · {progress.data.dailyStatus.worse} worse. Pain score each day, newest last.</p>
         </div>
       )}
 

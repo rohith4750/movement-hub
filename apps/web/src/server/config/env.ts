@@ -46,6 +46,8 @@ const schema = z.object({
   STORAGE_SECRET_KEY: z.string().optional().default(""),
   CORS_ORIGINS: z.string().default("*"),
   TIMEZONE_OFFSET: z.string().default("+05:30"),
+  /** Off by default. Set to "true" only while running Settings → Danger zone → flush data, then remove it. */
+  ALLOW_DATA_RESET: z.string().optional().default(""),
 });
 
 const parsed = schema

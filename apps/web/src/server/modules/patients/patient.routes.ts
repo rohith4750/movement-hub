@@ -4,7 +4,7 @@ import { prisma, type Prisma } from "@movement-hub/database";
 import { created, handler, idParam, meta, ok, orderBy, paginationQuery, paging, q } from "../../lib/http";
 import { audit } from "../../lib/audit";
 import { nextCode } from "../../lib/codes";
-import { dateOnly } from "../../lib/time";
+import { dateOnly, localDateTime } from "../../lib/time";
 import { assertPatientAccess, authorize, STAFF } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { phoneSchema } from "../../lib/validators";
@@ -409,7 +409,7 @@ patientRouter.get(
 );
 
 export async function patientProgress(patientId: string) {
-  const [sessions, consultations, plan] = await Promise.all([
+  const [sessions, consultations, plan, daily] = await Promise.all([
     prisma.therapySession.findMany({
       where: { patientId, status: "COMPLETED", deletedAt: null },
       orderBy: { completedAt: "asc" },
@@ -421,11 +421,24 @@ export async function patientProgress(patientId: string) {
       select: { createdAt: true, assessment: { select: { painScore: true, rangeOfMotion: true } } },
     }),
     prisma.treatmentPlan.findFirst({ where: { patientId, status: "ACTIVE" }, select: { id: true, title: true, prescribedSessions: true } }),
+    // Daily check-ins across all of the patient's plans (typed by a physio, or filled in when a session is completed).
+    prisma.treatmentProgress.findMany({ where: { treatmentPlan: { patientId, deletedAt: null } }, orderBy: { date: "asc" }, select: { date: true, updatedAt: true, painScore: true, status: true } }),
   ]);
   const completed = plan ? await prisma.therapySession.count({ where: { treatmentPlanId: plan.id, status: "COMPLETED" } }) : 0;
   const first = consultations[0]?.assessment?.painScore ?? sessions[0]?.painBefore ?? null;
-  const latest = sessions.at(-1)?.painAfter ?? null;
+  // "Pain now" is the newest reading from either source, ranked by when it was written. A daily entry is dated
+  // no later than the end of its own (clinic-local) day, so back-filling an earlier day never outranks today's session.
+  const readings = [
+    ...sessions.flatMap((s) => (s.painAfter !== null && s.completedAt ? [{ t: s.completedAt.getTime(), v: s.painAfter }] : [])),
+    ...daily.flatMap((d) => (d.painScore !== null ? [{ t: Math.min(d.updatedAt.getTime(), localDateTime(d.date.toISOString().slice(0, 10), "23:59").getTime() + 59_999), v: d.painScore }] : [])),
+  ];
+  const newest = readings.reduce<{ t: number; v: number } | null>((m, r) => (!m || r.t > m.t ? r : m), null);
+  const latest = newest ? newest.v : null;
+  const countOf = (st: "IMPROVED" | "SAME" | "WORSE") => daily.filter((d) => d.status === st).length;
   return {
+    dailyLog: daily.slice(-30).map((d) => ({ date: d.date.toISOString().slice(0, 10), painScore: d.painScore, status: d.status })),
+    dailyCount: daily.length,
+    dailyStatus: { improved: countOf("IMPROVED"), same: countOf("SAME"), worse: countOf("WORSE") },
     activePlan: plan ? { ...plan, completedSessions: completed, percent: Math.round((completed / plan.prescribedSessions) * 100) } : null,
     initialPain: first,
     latestPain: latest,

@@ -91,6 +91,8 @@ export function PatientsTab({ range }: { range: DateRange }) {
 export function OutcomesTab({ range }: { range: DateRange }) {
   const q = useOutcomeAnalytics(range);
   const d = q.data;
+  // Older servers don't send the daily check-ins block.
+  const daily = d && d.daily ? d.daily : { entries: 0, improved: 0, same: 0, worse: 0, improvingRate: 0, avgPain: null };
   return (
     <Frame query={q}>
       {d ? (
@@ -105,6 +107,7 @@ export function OutcomesTab({ range }: { range: DateRange }) {
             <StatTile label="Sessions with relief" value={`${d.reliefRate}%`} hint={`of ${d.sessionsMeasured} measured`} />
             <StatTile label="Plans completed" value={d.completedPlans} hint={`${d.goalsMetRate}% met their goals`} />
             <StatTile label="Progress rating" value={d.avgProgressRating === null ? "—" : `${d.avgProgressRating} / 5`} hint={`${d.sessionsCompleted} sessions`} />
+            <StatTile label="Check-ins improving" value={daily.entries ? `${daily.improvingRate}%` : "—"} hint={`${daily.entries} daily check-ins`} good={daily.improvingRate >= 50} />
           </View>
 
           <SectionTitle>Treatment outcomes</SectionTitle>
@@ -121,6 +124,24 @@ export function OutcomesTab({ range }: { range: DateRange }) {
                   { label: "Outcome not recorded", value: d.outcomes.notRecorded, color: colors.navy100 },
                 ]}
               />
+            )}
+          </Card>
+
+          <SectionTitle>Daily check-ins</SectionTitle>
+          <Card>
+            {daily.improved + daily.same + daily.worse === 0 ? (
+              <Muted>No daily progress was recorded in this period.</Muted>
+            ) : (
+              <>
+                <Bars
+                  rows={[
+                    { label: "Improved", value: daily.improved, color: colors.success },
+                    { label: "Same", value: daily.same, color: colors.muted },
+                    { label: "Worse", value: daily.worse, color: colors.danger },
+                  ]}
+                />
+                {daily.avgPain !== null ? <Muted style={{ fontSize: 12 }}>Average daily pain score: {daily.avgPain} / 10</Muted> : null}
+              </>
             )}
           </Card>
 

@@ -162,11 +162,18 @@ interface Progress {
   latestPain: number | null;
   painReduction: number | null;
   timeline: { id: string; sessionNumber: number | null; completedAt: string; painBefore: number | null; painAfter: number | null }[];
+  /** Daily check-ins, oldest first (last 30). Absent when the server is older than the app. */
+  dailyLog?: { date: string; painScore: number | null; status: "IMPROVED" | "SAME" | "WORSE" | null }[];
+  dailyCount?: number;
+  dailyStatus?: { improved: number; same: number; worse: number };
 }
 
 export function PainProgressCard({ patientId }: { patientId: string }) {
   const q = useQuery({ queryKey: qk.patientProgress(patientId), queryFn: () => api.get<Progress>(`/patients/${patientId}/progress`) });
   const p = q.data;
+  // Older servers don't send the daily check-ins; treat them as none rather than crashing.
+  const dailyLog = p && p.dailyLog ? p.dailyLog : [];
+  const dailyStatus = p && p.dailyStatus ? p.dailyStatus : { improved: 0, same: 0, worse: 0 };
   return (
     <Card>
       <H2>Progress</H2>
@@ -202,6 +209,26 @@ export function PainProgressCard({ patientId }: { patientId: string }) {
               </Row>
             </>
           )}
+          {dailyLog.length > 0 ? (
+            <View style={{ gap: space.xs }}>
+              <Text weight="semibold" style={{ fontSize: 13 }}>Daily check-ins</Text>
+              <View style={styles.checkRow}>
+                {dailyLog.slice(-14).map((c) => (
+                  <View
+                    key={c.date}
+                    style={[styles.check, c.status === "IMPROVED" ? styles.checkGood : c.status === "WORSE" ? styles.checkBad : null]}
+                    accessible
+                    accessibilityLabel={`${c.date}: pain ${c.painScore ?? "not recorded"}, ${c.status ? c.status.toLowerCase() : "no status"}`}
+                  >
+                    <Text weight="semibold" style={{ fontSize: 11, color: c.status === "IMPROVED" ? colors.success : c.status === "WORSE" ? colors.danger : colors.muted }}>{c.painScore ?? "–"}</Text>
+                  </View>
+                ))}
+              </View>
+              <Muted style={{ fontSize: 12 }}>
+                {dailyStatus.improved} improved · {dailyStatus.same} same · {dailyStatus.worse} worse · pain score each day (last {Math.min(14, dailyLog.length)})
+              </Muted>
+            </View>
+          ) : null}
         </>
       ) : null}
     </Card>
@@ -224,5 +251,9 @@ const styles = StyleSheet.create({
   chart: { flexDirection: "row", alignItems: "flex-end", gap: 6, height: 130 },
   barGroup: { flex: 1, alignItems: "center", gap: 4 },
   bars: { flexDirection: "row", alignItems: "flex-end", gap: 2, height: 106, width: "100%", justifyContent: "center" },
+  checkRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  check: { minWidth: 30, height: 30, borderRadius: 15, paddingHorizontal: 6, alignItems: "center", justifyContent: "center", backgroundColor: colors.navy50 },
+  checkGood: { backgroundColor: colors.successBg },
+  checkBad: { backgroundColor: colors.dangerBg },
   bar: { width: "40%", borderTopLeftRadius: 3, borderTopRightRadius: 3, minHeight: 2 },
 });

@@ -416,6 +416,8 @@ export interface OutcomeAnalytics {
   completedPlans: number;
   outcomes: { goalsMet: number; partiallyMet: number; notMet: number; discontinued: number; notRecorded: number };
   goalsMetRate: number;
+  /** Daily check-ins (Improved / Same / Worse) recorded in the period. */
+  daily?: { entries: number; improved: number; same: number; worse: number; improvingRate: number; avgPain: number | null };
   avgPrescribedSessions: number | null;
   avgSessionsDone: number | null;
   avgFinalPain: number | null;

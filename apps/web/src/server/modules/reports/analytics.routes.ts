@@ -2,7 +2,7 @@ import { Router } from "../../router";
 import { z } from "zod";
 import { Prisma, prisma } from "@movement-hub/database";
 import { handler, ok, q } from "../../lib/http";
-import { addDays } from "../../lib/time";
+import { addDays, dateOnly } from "../../lib/time";
 import { authorize } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { billingScope } from "../billing/billing.service";
@@ -112,7 +112,8 @@ analyticsRouter.get(
   handler(async (req, res) => {
     const r = q<Range>(req);
     const s = span(r);
-    const [byPhysio, plans, planStats, activePlans] = await Promise.all([
+    const dayRange = { gte: dateOnly(r.from), lte: dateOnly(r.to) }; // daily entries are plain dates
+    const [byPhysio, plans, planStats, activePlans, checkIns, checkInAvg] = await Promise.all([
       prisma.$queryRaw<{ therapistId: string; name: string; sessions: number; measured: number; relief: number; avgBefore: number | null; avgAfter: number | null; avgRating: number | null }[]>`
         SELECT s."therapistId", u."name", COUNT(*)::int AS sessions,
                (COUNT(*) FILTER (WHERE s."painBefore" IS NOT NULL AND s."painAfter" IS NOT NULL))::int AS measured,
@@ -129,7 +130,14 @@ analyticsRouter.get(
         FROM "TreatmentPlan" tp
         WHERE tp."status" = 'COMPLETED' AND tp."deletedAt" IS NULL AND tp."completedAt" >= ${s.gte} AND tp."completedAt" < ${s.lt}`,
       prisma.treatmentPlan.count({ where: { status: "ACTIVE", deletedAt: null } }),
+      // Daily check-ins: how patients are doing from one day to the next (Improved / Same / Worse).
+      prisma.treatmentProgress.groupBy({ by: ["status"], where: { date: dayRange }, _count: true }),
+      prisma.treatmentProgress.aggregate({ where: { date: dayRange }, _avg: { painScore: true }, _count: true }),
     ]);
+    const checkIn = (st: string) => checkIns.find((c) => c.status === st)?._count ?? 0;
+    const improved = checkIn("IMPROVED");
+    const same = checkIn("SAME");
+    const worse = checkIn("WORSE");
 
     const sessions = byPhysio.reduce((n, x) => n + x.sessions, 0);
     const measured = byPhysio.reduce((n, x) => n + x.measured, 0);
@@ -163,6 +171,7 @@ analyticsRouter.get(
         notRecorded: plans.filter((p) => !p.outcome).reduce((n, p) => n + p._count, 0),
       },
       goalsMetRate: pct(outcome("GOALS_MET"), completedPlans),
+      daily: { entries: checkInAvg._count, improved, same, worse, improvingRate: pct(improved, improved + same + worse), avgPain: round1(checkInAvg._avg.painScore) },
       avgPrescribedSessions: round1(planStats[0]?.prescribed),
       avgSessionsDone: round1(planStats[0]?.done),
       avgFinalPain: round1(planStats[0]?.finalPain),
