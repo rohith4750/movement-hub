@@ -134,10 +134,10 @@ function ReportsScreen() {
       {view === "overview" ? (
         <>
       <View style={styles.grid}>
-        <StatTile label="Net revenue" value={revenue.data ? inr(revenue.data.netRevenue) : "…"} hint="collected − refunds" />
-        <StatTile label="Outstanding" value={due.data ? inr(due.data.totalDue) : "…"} hint={due.data ? `${due.data.count} invoices` : undefined} />
-        {isAdmin ? <StatTile label="Appointments" value={appts.data?.total ?? "…"} hint={appts.data ? `No-show ${appts.data.noShowRate}% · Cancel ${appts.data.cancellationRate}%` : undefined} /> : null}
-        <StatTile label="Packages sold" value={pkgs.data ? pkgs.data.sales.reduce((s, x) => s + x.count, 0) : "…"} />
+        <StatTile icon="stats-chart-outline" tint="#E6EEF9" tone="#1D4B93" label="Net revenue" value={revenue.data ? inr(revenue.data.netRevenue) : "…"} hint="collected − refunds" />
+        <StatTile icon="time-outline" tint="#FCEBE7" tone="#C2503A" label="Outstanding" value={due.data ? inr(due.data.totalDue) : "…"} hint={due.data ? `${due.data.count} invoices` : undefined} />
+        {isAdmin ? <StatTile icon="calendar-outline" tint="#EFEAFB" tone="#5B3FB5" label="Appointments" value={appts.data?.total ?? "…"} hint={appts.data ? `No-show ${appts.data.noShowRate}% · Cancel ${appts.data.cancellationRate}%` : undefined} /> : null}
+        <StatTile icon="pricetags-outline" tint="#E3F4E5" tone="#1F7A3A" label="Packages sold" value={pkgs.data ? pkgs.data.sales.reduce((s, x) => s + x.count, 0) : "…"} />
       </View>
       {all.map((x, i) => (x.error ? <ErrorBox key={i} error={x.error} onRetry={() => x.refetch()} /> : null))}
 

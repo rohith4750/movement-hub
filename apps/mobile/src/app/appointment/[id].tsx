@@ -4,7 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Linking, Pressable, View } from "react-native";
 import { goBack, SelectField, Sheet } from "@/components/form";
-import { Badge, Button, Card, Chips, ErrorBox, Field, H2, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
+import { ActionTile, Avatar, Badge, Button, Card, Chips, ErrorBox, Field, H2, Input, KeyValue, Loading, Muted, Row, Screen, Text, TileGrid, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
@@ -165,7 +165,7 @@ export default function AppointmentDetail() {
         right={
           a && canEditNotes ? (
             <Pressable onPress={openEdit} hitSlop={10} accessibilityRole="button" accessibilityLabel="Edit appointment">
-              <Ionicons name="create-outline" size={22} color={colors.navy700} />
+              <Ionicons name="create-outline" size={22} color={colors.white} />
             </Pressable>
           ) : undefined
         }
@@ -176,34 +176,44 @@ export default function AppointmentDetail() {
         <ErrorBox error={q.error} onRetry={() => q.refetch()} />
       ) : a ? (
         <>
-          <Card style={{ backgroundColor: colors.navy700, borderColor: colors.navy700 }}>
-            <Row style={{ justifyContent: "space-between" }}>
-              <Text weight="bold" style={{ color: colors.white, fontSize: 22 }}>{time(a.startAt)}</Text>
-              <Badge status={a.status} />
+          <Card>
+            <Row gap={space.md}>
+              <Avatar name={fullName(a.patient)} size={54} />
+              {/* The status sits under the name, so a long name gets the whole width instead of "Yeshwant D…" */}
+              <View style={{ flex: 1, gap: 4 }}>
+                <Pressable
+                  onPress={() => router.push({ pathname: "/patient/[id]", params: { id: a.patient.id } })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${fullName(a.patient)}`}
+                >
+                  <Text weight="bold" style={{ fontSize: 17 }} numberOfLines={2}>{fullName(a.patient)}</Text>
+                </Pressable>
+                <Row gap={space.sm} style={{ flexWrap: "wrap" }}>
+                  <Muted style={{ fontSize: 12 }}>{a.patient.patientCode}</Muted>
+                  <Badge status={a.status} />
+                </Row>
+              </View>
             </Row>
-            <Text weight="semibold" style={{ color: colors.gold300 }}>{date(a.startAt)}</Text>
-            <Row style={{ justifyContent: "space-between" }}>
-              <Text style={{ color: colors.navy100, flex: 1 }}>
+            <Row gap={space.sm}>
+              <Ionicons name="calendar-outline" size={18} color={colors.gold700} />
+              <Text weight="semibold">{date(a.startAt)} · {time(a.startAt)}</Text>
+            </Row>
+            <Row gap={space.sm}>
+              <Ionicons name="medkit-outline" size={18} color={colors.gold700} />
+              <Text style={{ flex: 1 }}>
                 {label(a.type)}
                 {a.therapySession?.sessionNumber ? ` · Session #${a.therapySession.sessionNumber}` : ""}
               </Text>
               {a.source === "WALK_IN" ? <Badge status="WALK_IN" text="Walk-in" /> : null}
             </Row>
+            <Row gap={space.sm}>
+              <Ionicons name="person-outline" size={18} color={colors.gold700} />
+              <Text style={{ flex: 1 }}>Physio: {a.therapist.user.name}</Text>
+            </Row>
           </Card>
 
           <Card>
-            <Pressable onPress={() => router.push({ pathname: "/patient/[id]", params: { id: a.patient.id } })} accessibilityRole="button">
-              <Row style={{ justifyContent: "space-between" }}>
-                <View style={{ flex: 1 }}>
-                  <Muted style={{ fontSize: 12 }}>Patient</Muted>
-                  <Text weight="bold" style={{ fontSize: 16 }}>{fullName(a.patient)}</Text>
-                  <Muted style={{ fontSize: 12 }}>{a.patient.patientCode}</Muted>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.muted} />
-              </Row>
-            </Pressable>
             <Button title={`Call ${a.patient.phone}`} variant="ghost" small icon="call-outline" onPress={() => Linking.openURL(`tel:${a.patient.phone}`)} style={{ alignSelf: "flex-start" }} />
-            <KeyValue k="Physiotherapist" v={a.therapist.user.name} />
             <KeyValue k="Booking no." v={a.appointmentNo} />
             {a.treatmentPlan ? (
               <Pressable onPress={() => router.push({ pathname: "/plan/[id]", params: { id: a.treatmentPlan!.id } })} accessibilityRole="button">
@@ -278,13 +288,11 @@ export default function AppointmentDetail() {
           {/* Front-desk actions */}
           {isFrontDesk && open ? (
             !cancelling ? (
-              <View style={{ gap: space.sm }}>
-                <Row>
-                  <Button title="Reschedule" variant="ghost" icon="calendar-outline" onPress={() => router.push({ pathname: "/book", params: { reschedule: a.id } })} style={{ flex: 1 }} />
-                  <Button title="No-show" variant="ghost" icon="person-remove-outline" onPress={() => act.mutate("no-show")} style={{ flex: 1 }} />
-                </Row>
-                <Button title="Cancel appointment" variant="danger" icon="close-circle-outline" onPress={() => setCancelling(true)} />
-              </View>
+              <TileGrid>
+                <ActionTile icon="calendar-outline" title="Reschedule" onPress={() => router.push({ pathname: "/book", params: { reschedule: a.id } })} />
+                <ActionTile icon="person-remove-outline" title="No-show" onPress={() => act.mutate("no-show")} />
+                <ActionTile icon="close-circle-outline" title="Cancel" danger onPress={() => setCancelling(true)} />
+              </TileGrid>
             ) : (
               <Card>
                 <H2>Cancel this visit?</H2>

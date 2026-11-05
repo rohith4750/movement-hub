@@ -4,6 +4,9 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, Switch, View } from "react-native";
 import { goBack, RequireRole, SectionTitle, SelectField, Sheet } from "@/components/form";
+import { PatientPickerSheet } from "@/components/patient-picker";
+import { SellPackageSheet } from "@/components/patient-sheets";
+import { TherapyList, therapyTotals, usePricedTherapies } from "@/components/therapy-package";
 import { Badge, Button, Card, Chips, Empty, ErrorBox, Field, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
@@ -52,6 +55,10 @@ function PackagesScreen() {
   const isAdmin = hasRole(user, "ADMIN");
   const [status, setStatus] = useState<PkgStatus>("ACTIVE");
   const [editing, setEditing] = useState<PackageDef | "new" | null>(null);
+  // "Sell to patient": choose the patient, then build a package from therapies (or pick one from the catalogue).
+  const canSell = hasRole(user, "ADMIN", "RECEPTIONIST");
+  const [picking, setPicking] = useState(false);
+  const [sellFor, setSellFor] = useState<{ id: string; name: string } | null>(null);
 
   const catalogue = useQuery({
     queryKey: qk.packages(isAdmin ? "all" : "active"),
@@ -65,6 +72,14 @@ function PackagesScreen() {
   return (
     <Screen
       edges={["top", "bottom"]}
+      footer={
+        isAdmin || canSell ? (
+          <Row gap={space.sm}>
+            {isAdmin ? <Button title="New package" variant="ghost" icon="add" onPress={() => setEditing("new")} style={{ flex: 1 }} /> : null}
+            {canSell ? <Button title="Sell to patient" variant="gold" icon="pricetags-outline" onPress={() => setPicking(true)} style={{ flex: 1 }} /> : null}
+          </Row>
+        ) : undefined
+      }
       refreshing={catalogue.isRefetching || sold.isRefetching}
       onRefresh={() => {
         catalogue.refetch();
@@ -73,7 +88,7 @@ function PackagesScreen() {
     >
       <TopBar title="Packages" onBack={() => goBack("/more")} />
 
-      <SectionTitle action={isAdmin ? <Button title="New package" variant="ghost" small icon="add" onPress={() => setEditing("new")} /> : undefined}>Catalogue</SectionTitle>
+      <SectionTitle>Catalogue</SectionTitle>
       {catalogue.isLoading ? (
         <Loading />
       ) : catalogue.error ? (
@@ -102,7 +117,7 @@ function PackagesScreen() {
           );
         })
       )}
-      {!isAdmin ? <Muted style={{ fontSize: 12 }}>To sell a package to a patient, open the patient from the Patients tab.</Muted> : null}
+      <Muted style={{ fontSize: 12 }}>{canSell ? "Tap “Sell to patient” to build a package from therapies — the price is the one-session prices from Settings × the number of sessions — or to sell one of the packages above." : "To sell a package to a patient, ask the front desk."}</Muted>
 
       <SectionTitle>Patient packages</SectionTitle>
       <Chips<PkgStatus>
@@ -144,6 +159,18 @@ function PackagesScreen() {
       )}
 
       {editing ? <PackageEditor pkg={editing === "new" ? null : editing} onClose={() => setEditing(null)} /> : null}
+
+      <PatientPickerSheet
+        open={picking}
+        onClose={() => setPicking(false)}
+        title="Sell package to…"
+        onPick={(p) => {
+          setPicking(false);
+          // Let the first sheet finish closing before the next one opens.
+          setTimeout(() => setSellFor({ id: p.id, name: fullName(p) }), 300);
+        }}
+      />
+      <SellPackageSheet key={sellFor ? sellFor.id : "none"} patientId={sellFor ? sellFor.id : ""} patientName={sellFor ? sellFor.name : undefined} open={!!sellFor} onClose={() => setSellFor(null)} />
     </Screen>
   );
 }
@@ -176,10 +203,14 @@ function PackageEditor({ pkg, onClose }: { pkg: PackageDef | null; onClose: () =
     includesHomeVisit: pkg?.includesHomeVisit ?? false,
     isActive: pkg?.isActive ?? true,
   });
+  // Optional helper: tick therapies and the price is worked out from the one-session prices in Settings.
+  const [picked, setPicked] = useState<string[]>([]);
+  const { list: therapyList } = usePricedTherapies();
 
   const price = Number(f.price);
   const sessions = Number(f.sessionCount);
   const validity = Number(f.validityDays);
+  const calc = therapyTotals({ therapies: picked, sessions: f.sessionCount, validity: f.validityDays }, therapyList);
   const problem =
     f.name.trim().length < 2
       ? "Name needs at least 2 characters"
@@ -228,6 +259,24 @@ function PackageEditor({ pkg, onClose }: { pkg: PackageDef | null; onClose: () =
         <View style={{ flex: 1 }}><Field label="Sessions"><Input value={f.sessionCount} onChangeText={(t) => setF({ ...f, sessionCount: t.replace(/\D/g, "") })} keyboardType="number-pad" /></Field></View>
       </Row>
       <Field label="Validity (days)"><Input value={f.validityDays} onChangeText={(t) => setF({ ...f, validityDays: t.replace(/\D/g, "") })} keyboardType="number-pad" /></Field>
+      <Field label="Work out the price from therapies (optional)">
+        <TherapyList selected={picked} onToggle={(c) => setPicked(picked.includes(c) ? picked.filter((x) => x !== c) : [...picked, c])} />
+      </Field>
+      {picked.length > 0 ? (
+        <Card gold style={{ gap: 6 }}>
+          <Muted>1 session of {picked.join(" + ")} = {inr(calc.perSession)}</Muted>
+          <Muted>× {calc.sessionsOk ? calc.sessions : "—"} sessions = {calc.sessionsOk ? inr(calc.total) : "—"}</Muted>
+          <Button
+            title={calc.sessionsOk ? `Use ${inr(calc.total)} as the price` : "Enter the sessions first"}
+            variant="ghost"
+            small
+            icon="calculator-outline"
+            disabled={!calc.sessionsOk}
+            onPress={() => setF({ ...f, price: String(calc.total), name: f.name.trim() ? f.name : picked.join(" + "), description: f.description.trim() ? f.description : `Includes: ${picked.join(", ")}` })}
+            style={{ alignSelf: "flex-start" }}
+          />
+        </Card>
+      ) : null}
       <Field label="Description (optional)"><Input value={f.description} onChangeText={(t) => setF({ ...f, description: t })} multiline /></Field>
       <ToggleRow title="Includes home visits" value={f.includesHomeVisit} onChange={(v) => setF({ ...f, includesHomeVisit: v })} />
       {pkg ? <ToggleRow title="Offered for sale" value={f.isActive} onChange={(v) => setF({ ...f, isActive: v })} /> : null}

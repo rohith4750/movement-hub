@@ -41,9 +41,13 @@ function StaffList() {
   const withoutPin = rows.filter((u) => !u.hasPin).length;
 
   return (
-    <Screen edges={["top", "bottom"]} refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
+    <Screen
+      edges={["top", "bottom"]}
+      refreshing={q.isRefetching}
+      onRefresh={() => q.refetch()}
+      footer={<Button title="Add Super Admin" variant="gold" icon="person-add-outline" onPress={() => router.push("/staff/new")} />}
+    >
       <TopBar title="Staff accounts" onBack={() => goBack("/more")} />
-      <Button title="Add Super Admin" variant="gold" icon="person-add-outline" onPress={() => router.push("/staff/new")} />
       <Muted style={{ fontSize: 12 }}>Web: email/phone + password · App: personal 6-digit PIN. Add physiotherapists from Therapists so their schedule is created.</Muted>
       {withoutPin > 0 ? (
         <View style={styles.banner}>
@@ -65,7 +69,7 @@ function StaffList() {
             return (
               <Card key={u.id}>
                 <Row style={{ justifyContent: "space-between" }}>
-                  <Text weight="bold" style={{ fontSize: 15, flex: 1 }} numberOfLines={1}>{u.name}{self ? " (you)" : ""}</Text>
+                  <Text weight="bold" style={{ fontSize: 15, flex: 1 }} numberOfLines={2}>{u.name}{self ? " (you)" : ""}</Text>
                   <Muted style={{ fontSize: 12 }}>{label(u.role)}</Muted>
                 </Row>
                 <Muted style={{ fontSize: 12 }}>{u.phone}{u.email ? ` · ${u.email}` : ""}</Muted>

@@ -7,7 +7,7 @@ import { goBack, RequireRole } from "@/components/form";
 import { Badge, Button, Card, Chips, Empty, ErrorBox, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
-import { date, fullName, inr } from "@/lib/format";
+import { fullName, inr, shortDate } from "@/lib/format";
 import { qk } from "@/lib/query-keys";
 import { TherapistFilter } from "@/components/therapist-filter";
 import { colors, radius, space } from "@/theme";
@@ -115,21 +115,26 @@ function BillingList() {
           {rows.map((i) => (
             <Pressable key={i.id} onPress={() => router.push({ pathname: "/invoice/[id]", params: { id: i.id } })} accessibilityRole="button" accessibilityLabel={`${i.invoiceNo}, ${fullName(i.patient)}, ${inr(i.totalAmount)}`}>
               <Card>
-                <Row style={{ justifyContent: "space-between" }}>
-                  <Text weight="semibold" style={{ flex: 1 }} numberOfLines={1}>{fullName(i.patient)}</Text>
+                <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <Text weight="semibold" style={{ flex: 1 }} numberOfLines={2}>{fullName(i.patient)}</Text>
                   <Badge status={i.status} />
                 </Row>
                 <Row style={{ justifyContent: "space-between" }}>
                   <Muted style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>
-                    {i.invoiceNo} · {date(i.issuedAt ?? i.createdAt)}
-                    {!isPhysio ? ` · ${i.therapist?.user.name ?? "No physio"}` : ""}
+                    {i.invoiceNo} · {shortDate(i.issuedAt ?? i.createdAt)}
                   </Muted>
                   <Row gap={4}>
                     <Text weight="bold">{inr(i.totalAmount)}</Text>
                     <Ionicons name="chevron-forward" size={16} color={colors.muted} />
                   </Row>
                 </Row>
-                {Number(i.dueAmount) > 0 && DUE.includes(i.status) ? <Text weight="semibold" style={{ color: colors.danger, fontSize: 12 }}>Due {inr(i.dueAmount)}</Text> : null}
+                {/* The physio and what is still due get their own line, so neither squeezes the invoice number */}
+                {!isPhysio || (Number(i.dueAmount) > 0 && DUE.includes(i.status)) ? (
+                  <Row style={{ justifyContent: "space-between" }}>
+                    {!isPhysio ? <Muted style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>{i.therapist?.user.name ?? "No physio"}</Muted> : <View style={{ flex: 1 }} />}
+                    {Number(i.dueAmount) > 0 && DUE.includes(i.status) ? <Text weight="semibold" style={{ color: colors.danger, fontSize: 12 }}>Due {inr(i.dueAmount)}</Text> : null}
+                  </Row>
+                ) : null}
               </Card>
             </Pressable>
           ))}

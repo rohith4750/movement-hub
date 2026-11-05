@@ -3,7 +3,7 @@ import { router } from "expo-router";
 import { Pressable, StyleSheet, View } from "react-native";
 import { PinBadge } from "@/components/admin-pin";
 import { RequireRole, goBack } from "@/components/form";
-import { Button, Empty, ErrorBox, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
+import { Avatar, Badge, Button, Empty, ErrorBox, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { qk } from "@/lib/query-keys";
@@ -38,9 +38,13 @@ function Therapists() {
   const noPin = isAdmin ? (q.data ?? []).filter((t) => t.isActive && !t.user.hasPin).length : 0;
 
   return (
-    <Screen edges={["top", "bottom"]} refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
+    <Screen
+      edges={["top", "bottom"]}
+      refreshing={q.isRefetching}
+      onRefresh={() => q.refetch()}
+      footer={isAdmin ? <Button title="Add physiotherapist" variant="gold" icon="person-add-outline" onPress={() => router.push("/therapist/new")} /> : undefined}
+    >
       <TopBar title="Physiotherapists" onBack={() => goBack("/more")} />
-      {isAdmin ? <Button title="Add physiotherapist" variant="gold" icon="person-add-outline" onPress={() => router.push("/therapist/new")} /> : null}
       {noPin > 0 ? (
         <View style={styles.banner}>
           <Text style={{ color: colors.warning, fontSize: 13 }}>{noPin} physiotherapist{noPin > 1 ? "s" : ""} can&apos;t use the mobile app yet. Open them and tap Set PIN.</Text>
@@ -59,27 +63,32 @@ function Therapists() {
               key={t.id}
               onPress={() => router.push({ pathname: "/therapist/[id]", params: { id: t.id } })}
               accessibilityRole="button"
-              style={({ pressed }) => [styles.card, { borderTopColor: t.colorTag ?? colors.gold500 }, !t.isActive && { opacity: 0.55 }, pressed && { opacity: 0.85 }]}
+              style={({ pressed }) => [styles.card, !t.isActive && { opacity: 0.55 }, pressed && { opacity: 0.85 }]}
             >
-              <Row style={{ justifyContent: "space-between" }}>
-                <Text weight="bold" style={{ fontSize: 16, flex: 1 }} numberOfLines={1}>{t.user.name}</Text>
-                {!t.isActive ? <Muted style={{ fontSize: 12 }}>Inactive</Muted> : null}
+              <Row gap={space.md} style={{ alignItems: "flex-start" }}>
+                <Avatar name={t.user.name} size={48} tint={t.colorTag && /^#[0-9a-fA-F]{6}$/.test(t.colorTag) ? `${t.colorTag}26` : colors.gold100} />
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Row style={{ justifyContent: "space-between" }}>
+                    <Text weight="bold" style={{ fontSize: 16, flex: 1 }} numberOfLines={2}>{t.user.name}</Text>
+                    <Badge status={t.isActive ? "ACTIVE" : "CANCELLED"} text={t.isActive ? "Active" : "Inactive"} />
+                  </Row>
+                  <Muted>{t.qualification} · {t.experienceYears} yrs experience</Muted>
+                  <View style={styles.chips}>
+                    {t.specializations.map((s) => (
+                      <View key={s.specialization.id} style={[styles.chip, { backgroundColor: colors.gold100 }]}>
+                        <Text weight="semibold" style={{ fontSize: 11, color: colors.gold700 }}>{s.specialization.name}</Text>
+                      </View>
+                    ))}
+                    {t.isAvailableForHomeVisit ? (
+                      <View style={[styles.chip, { backgroundColor: colors.navy50 }]}>
+                        <Text weight="semibold" style={{ fontSize: 11, color: colors.navy700 }}>Home visits</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Muted style={{ fontSize: 12 }}>{t.user.phone}{t.user.email ? ` · ${t.user.email}` : ""}</Muted>
+                  {isAdmin ? <PinBadge hasPin={t.user.hasPin} /> : null}
+                </View>
               </Row>
-              <Muted>{t.qualification} · {t.experienceYears} yrs experience</Muted>
-              <View style={styles.chips}>
-                {t.specializations.map((s) => (
-                  <View key={s.specialization.id} style={[styles.chip, { backgroundColor: colors.gold100 }]}>
-                    <Text weight="semibold" style={{ fontSize: 11, color: colors.gold700 }}>{s.specialization.name}</Text>
-                  </View>
-                ))}
-                {t.isAvailableForHomeVisit ? (
-                  <View style={[styles.chip, { backgroundColor: colors.navy50 }]}>
-                    <Text weight="semibold" style={{ fontSize: 11, color: colors.navy700 }}>Home visits</Text>
-                  </View>
-                ) : null}
-              </View>
-              <Muted style={{ fontSize: 12 }}>{t.user.phone}{t.user.email ? ` · ${t.user.email}` : ""}</Muted>
-              {isAdmin ? <PinBadge hasPin={t.user.hasPin} /> : null}
             </Pressable>
           ))}
         </View>
@@ -89,7 +98,7 @@ function Therapists() {
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, gap: 6, borderWidth: 1, borderColor: colors.border, borderTopWidth: 4, ...shadow },
+  card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, gap: 6, borderWidth: 1, borderColor: colors.border, ...shadow },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.pill },
   banner: { backgroundColor: colors.warningBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: "#C98A12" },

@@ -19,6 +19,15 @@ export const date = (v?: string | Date | null) => {
   return `${String(c.getUTCDate()).padStart(2, "0")} ${MONTHS[c.getUTCMonth()]} ${c.getUTCFullYear()}`;
 };
 
+/** "4 Nov", or "4 Nov 2025" when it isn't this year: for tight list rows where the full date would be cut off. */
+export const shortDate = (v?: string | Date | null) => {
+  if (!v) return "—";
+  const c = clinic(v);
+  const base = `${c.getUTCDate()} ${MONTHS[c.getUTCMonth()]}`;
+  const year = c.getUTCFullYear();
+  return year === clinic(new Date()).getUTCFullYear() ? base : `${base} ${year}`;
+};
+
 export const time = (v?: string | Date | null) => {
   if (!v) return "—";
   const c = clinic(v);

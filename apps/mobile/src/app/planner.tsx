@@ -7,7 +7,7 @@ import { goBack, RequireRole, SectionTitle, Sheet } from "@/components/form";
 import { slotStyles, SlotLegend } from "@/components/slot-legend";
 import { Badge, Button, Card, Empty, ErrorBox, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
-import { addDays, clock, date, dayParts, fullName, hhmm, label, time, today } from "@/lib/format";
+import { addDays, clock, date, dayParts, fullName, hhmm, label, shortDate, time, today } from "@/lib/format";
 import { usePlannerStore, type PlanPick } from "@/lib/planner-store";
 import { qk } from "@/lib/query-keys";
 import { usePlanner } from "@/lib/queries";
@@ -320,11 +320,11 @@ function CandidateCard({ c, pick, slot, therapistName, onToggle, onPick }: { c: 
         </Pressable>
         <Pressable style={{ flex: 1, gap: 2 }} onPress={() => router.push({ pathname: "/patient/[id]", params: { id: c.patient.id } })}>
           <Row style={{ justifyContent: "space-between" }}>
-            <Text weight="semibold" style={{ fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(c.patient)}</Text>
+            <Text weight="semibold" style={{ fontSize: 15, flex: 1 }} numberOfLines={2}>{fullName(c.patient)}</Text>
             <Badge status={c.category} text={CATEGORY_LABEL[c.category]} />
           </Row>
           <Muted style={{ fontSize: 12 }}>
-            {c.patient.patientCode} · {c.completedVisits} visit{c.completedVisits === 1 ? "" : "s"}{c.lastVisitAt ? ` · last ${date(c.lastVisitAt)}` : ""}
+            {c.patient.patientCode} · {c.completedVisits} visit{c.completedVisits === 1 ? "" : "s"}{c.lastVisitAt ? ` · last ${shortDate(c.lastVisitAt)}` : ""}
           </Muted>
         </Pressable>
       </Row>
@@ -356,7 +356,7 @@ function CandidateCard({ c, pick, slot, therapistName, onToggle, onPick }: { c: 
 
       <Pressable onPress={onPick} accessibilityRole="button" style={styles.pickRow}>
         <Ionicons name="time-outline" size={16} color={colors.navy600} />
-        <Text weight="semibold" style={{ flex: 1, fontSize: 13, color: slot ? colors.navy800 : colors.warning }} numberOfLines={1}>
+        <Text weight="semibold" style={{ flex: 1, fontSize: 13, color: slot ? colors.navy800 : colors.warning }} numberOfLines={2}>
           {slot ? `${therapistName.get(slot.therapistId) ?? "Physio"} · ${time(slot.startAt)}` : c.therapistOnLeave ? `${therapistName.get(tId ?? "") ?? "Usual physio"} is on leave — choose another` : "Choose physio & time"}
         </Text>
         {isUsual ? <Badge status="ACTIVE" text="Usual time" /> : null}

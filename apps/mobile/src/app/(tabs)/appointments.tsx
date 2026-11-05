@@ -26,18 +26,22 @@ export default function Visits() {
   );
 
   return (
-    <Screen refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
+    <Screen
+      refreshing={q.isRefetching}
+      onRefresh={() => q.refetch()}
+      footer={
+        hasRole(user, "ADMIN", "RECEPTIONIST") ? (
+          <View style={{ gap: space.sm }}>
+            <Button title="Book appointment" variant="gold" icon="add-circle-outline" onPress={() => router.push("/book")} />
+            <Row>
+              <Button title="Walk-in" variant="ghost" small icon="walk-outline" onPress={() => router.push({ pathname: "/book", params: { walkIn: "1" } })} style={{ flex: 1 }} />
+              <Button title="Plan a day" variant="ghost" small icon="clipboard-outline" onPress={() => router.push("/planner")} style={{ flex: 1 }} />
+            </Row>
+          </View>
+        ) : undefined
+      }
+    >
       <BrandHeader title="Appointments" subtitle="Tap a visit to open, reschedule or update it" />
-      {hasRole(user, "ADMIN", "RECEPTIONIST") ? (
-        <View style={{ gap: space.sm }}>
-          <Button title="Book appointment" variant="gold" icon="add-circle-outline" onPress={() => router.push("/book")} />
-          <Row>
-            <Button title="Walk-in" variant="ghost" small icon="walk-outline" onPress={() => router.push({ pathname: "/book", params: { walkIn: "1" } })} style={{ flex: 1 }} />
-            <Button title="Plan a day" variant="ghost" small icon="clipboard-outline" onPress={() => router.push("/planner")} style={{ flex: 1 }} />
-          </Row>
-        </View>
-      ) : null}
-
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
         {Array.from({ length: 21 }, (_, i) => addDays(today(), i - 3)).map((d) => {
           const on = d === day;

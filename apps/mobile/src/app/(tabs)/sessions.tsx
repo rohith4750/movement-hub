@@ -49,23 +49,22 @@ export default function Sessions() {
                 accessibilityRole="button"
                 style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }, s.status === "IN_PROGRESS" && { borderColor: colors.gold500 }]}
               >
-                <View style={styles.time}>
-                  <Text weight="bold" style={{ color: colors.navy700 }}>{time(s.appointment.startAt)}</Text>
-                </View>
+                {/* Time and status on top, then the rest at the full card width (a time column on the left squeezed every line into "…") */}
                 <View style={{ flex: 1, gap: 3 }}>
                   <Row style={{ justifyContent: "space-between" }}>
-                    <Text weight="bold" style={{ fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(s.patient)}</Text>
+                    <Text weight="bold" style={{ color: colors.navy700 }}>{time(s.appointment.startAt)}</Text>
                     <Badge status={s.status} />
                   </Row>
-                  <Muted numberOfLines={1}>
+                  <Text weight="bold" style={{ fontSize: 15 }} numberOfLines={2}>{fullName(s.patient)}</Text>
+                  <Muted numberOfLines={2}>
                     {s.treatmentPlan?.title ?? "Therapy"} · Session {s.sessionNumber ?? "–"}
                     {s.treatmentPlan ? `/${s.treatmentPlan.prescribedSessions}` : ""}
                   </Muted>
+                  <Muted style={{ fontSize: 12 }} numberOfLines={2}>
+                    {s.patientPackage ? `${s.patientPackage.package.name} · ${s.patientPackage.remainingSessions} left` : "Pay per visit"}
+                  </Muted>
                   <Row gap={6}>
-                    <Muted style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>
-                      {s.patientPackage ? `${s.patientPackage.package.name} · ${s.patientPackage.remainingSessions} left` : "Pay per visit"}
-                      {` · ${s.therapist.user.name}`}
-                    </Muted>
+                    <Muted style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>{s.therapist.user.name}</Muted>
                     <Ionicons name="chevron-forward" size={16} color={colors.muted} />
                   </Row>
                 </View>
@@ -80,5 +79,4 @@ export default function Sessions() {
 
 const styles = StyleSheet.create({
   card: { flexDirection: "row", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.md, borderWidth: 1, borderColor: colors.border, ...shadow },
-  time: { width: 70, justifyContent: "center" },
 });

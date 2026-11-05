@@ -3,17 +3,16 @@ import { router } from "expo-router";
 import type { ComponentProps } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { AppointmentCard } from "@/components/appointment-card";
-import { BrandHeader, Card, Empty, ErrorBox, H2, Loading, Muted, ProgressBar, Row, Screen, Text } from "@/components/ui";
+import { ActionTile, BrandHeader, Card, Empty, ErrorBox, H2, Loading, Muted, ProgressBar, Row, Screen, Text, TileGrid } from "@/components/ui";
 import { hasRole, useAuth } from "@/lib/auth";
 import { date, greeting, inr, label, today } from "@/lib/format";
 import { useAppointmentsOn, useDashboard, useFinanceAnalytics, usePatientAnalytics } from "@/lib/queries";
-import { colors, space } from "@/theme";
+import { colors, compact, space } from "@/theme";
 
 const ACTIVE = ["SCHEDULED", "CONFIRMED", "CHECKED_IN", "IN_PROGRESS"];
 
 export default function TodayScreen() {
   const user = useAuth((s) => s.user);
-  const isPhysio = user?.role === "PHYSIOTHERAPIST";
   const canBook = hasRole(user, "ADMIN", "RECEPTIONIST");
   const canSeeMoney = hasRole(user, "ADMIN", "ACCOUNTANT");
   const isOwner = hasRole(user, "ADMIN"); // Super Admin / admin: clinic-wide figures
@@ -35,17 +34,19 @@ export default function TodayScreen() {
         todays.refetch();
       }}
     >
-      <BrandHeader title={`${greeting()}, ${user?.name.split(" ")[0] ?? ""}`} subtitle={`${label(user?.role)} · ${date(new Date())}`} />
+      <BrandHeader title={`${greeting()}, ${user?.name.split(" ")[0] ?? ""} 👋`} subtitle={`${label(user?.role)} · ${date(new Date())}`} />
 
-      {/* Quick actions */}
-      <Row gap={space.md}>
-        {canBook ? <QuickAction icon="person-add" label="Add patient" onPress={() => router.push("/patient/new")} /> : null}
-        {canBook ? <QuickAction icon="add-circle" label="Book visit" onPress={() => router.push("/book")} /> : null}
-        {canBook ? <QuickAction icon="clipboard" label="Plan day" onPress={() => router.push("/planner")} /> : null}
-        {hasRole(user, "ADMIN", "PHYSIOTHERAPIST") ? <QuickAction icon="pulse" label="Sessions" onPress={() => router.push("/sessions")} /> : null}
-        {!canBook && hasRole(user, "ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST", "ACCOUNTANT") ? <QuickAction icon="search" label="Find patient" onPress={() => router.push("/patients")} /> : null}
-        {hasRole(user, "ADMIN", "RECEPTIONIST", "ACCOUNTANT") && !hasRole(user, "PHYSIOTHERAPIST") ? <QuickAction icon="wallet" label="Billing" onPress={() => router.push("/billing")} /> : null}
-      </Row>
+      {/* Quick actions: tiles share the full width (3 per row; the Super Admin's six fill two rows) */}
+      <TileGrid gap={space.md}>
+        {canBook ? <ActionTile icon="person-add" title="Add patient" onPress={() => router.push("/patient/new")} /> : null}
+        {canBook ? <ActionTile icon="add-circle" title="Book visit" onPress={() => router.push("/book")} /> : null}
+        {canBook ? <ActionTile icon="clipboard" title="Plan day" onPress={() => router.push("/planner")} /> : null}
+        {hasRole(user, "ADMIN", "PHYSIOTHERAPIST") ? <ActionTile icon="pulse" title="Sessions" onPress={() => router.push("/sessions")} /> : null}
+        {hasRole(user, "ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST", "ACCOUNTANT") ? <ActionTile icon="search" title="Find patient" onPress={() => router.push("/patients")} /> : null}
+        {hasRole(user, "ADMIN", "RECEPTIONIST", "ACCOUNTANT") && user?.role !== "PHYSIOTHERAPIST" ? <ActionTile icon="wallet" title="Billing" onPress={() => router.push("/billing")} /> : null}
+      </TileGrid>
+
+      <H2>Today at a Glance</H2>
 
       {/* Day stats */}
       {dash.isLoading ? (
@@ -85,6 +86,7 @@ export default function TodayScreen() {
             <Row gap={space.md} style={{ alignItems: "flex-start" }}>
               {canSeeMoney && money.data ? (
                 <Mini
+                  grow={isOwner && people.data ? 1.4 : 1}
                   label="Revenue"
                   value={inr(money.data.netRevenue)}
                   hint={money.data.changePct === null ? "first month" : `${money.data.changePct >= 0 ? "▲" : "▼"} ${Math.abs(money.data.changePct)}% vs last period`}
@@ -139,45 +141,50 @@ export default function TodayScreen() {
   );
 }
 
-/** One headline number in the "This month" card. */
-function Mini({ label: l, value, hint, good, bad }: { label: string; value: string; hint?: string; good?: boolean; bad?: boolean }) {
+/** One headline number in the "This month" card. Money needs more room than a count, so a column can claim a bigger share. */
+function Mini({ label: l, value, hint, good, bad, grow = 1 }: { label: string; value: string; hint?: string; good?: boolean; bad?: boolean; grow?: number }) {
   return (
-    <View style={{ flex: 1, gap: 2 }}>
-      <Muted style={{ fontSize: 12 }}>{l}</Muted>
+    <View style={{ flex: grow, gap: 2 }}>
+      <Muted style={{ fontSize: 12 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{l}</Muted>
       <Text weight="bold" style={{ fontSize: 20, color: colors.navy800, letterSpacing: -0.4 }} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
       {hint ? <Text style={{ fontSize: 11, color: good ? colors.success : bad ? colors.danger : colors.muted }} numberOfLines={2}>{hint}</Text> : null}
     </View>
   );
 }
 
+/** Icon square beside each number on the "Today at a Glance" cards. */
+const STAT_LOOK: Record<string, { icon: ComponentProps<typeof Ionicons>["name"]; tint: string; color: string }> = {
+  "Visits today": { icon: "calendar-outline", tint: "#FBF1D6", color: colors.gold700 },
+  Completed: { icon: "checkmark-circle", tint: "#E3F4E5", color: colors.success },
+  Pending: { icon: "document-text-outline", tint: "#FCEBE7", color: "#C2503A" },
+  "Collected today": { icon: "wallet-outline", tint: "#F8E7C4", color: colors.gold700 },
+};
+const DEFAULT_STAT_LOOK = { icon: "people-outline" as const, tint: colors.navy50, color: colors.navy700 };
+
+/**
+ * A day figure. The small icon sits beside the label (not in its own column), so the label, the number and the
+ * hint get the whole width of the tile: nothing wraps or gets cut on a 360 dp phone.
+ */
 function Stat({ label: l, value, hint }: { label: string; value: string | number; hint?: string }) {
+  const look = STAT_LOOK[l] ?? DEFAULT_STAT_LOOK;
   return (
     <Card style={styles.statCard}>
-      <Muted style={{ fontSize: 12 }}>{l}</Muted>
-      <Text weight="bold" style={{ fontSize: 28, color: colors.navy800, letterSpacing: -0.5 }}>
+      <Row gap={space.sm}>
+        <View style={[styles.statIcon, { backgroundColor: look.tint }]}>
+          <Ionicons name={look.icon} size={compact ? 16 : 18} color={look.color} />
+        </View>
+        <Muted style={{ fontSize: 12, flex: 1 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{l}</Muted>
+      </Row>
+      <Text weight="bold" style={{ fontSize: 22, color: colors.navy800, letterSpacing: -0.5 }} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>
-      {hint ? <Muted style={{ fontSize: 11 }}>{hint}</Muted> : null}
+      {hint ? <Muted style={{ fontSize: 11 }} numberOfLines={2}>{hint}</Muted> : null}
     </Card>
-  );
-}
-
-function QuickAction({ icon, label: l, onPress }: { icon: ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void }) {
-  return (
-    <Pressable style={({ pressed }) => [styles.action, pressed && { opacity: 0.8 }]} onPress={onPress} accessibilityRole="button">
-      <View style={styles.actionIcon}>
-        <Ionicons name={icon} size={22} color={colors.navy700} />
-      </View>
-      <Text weight="semibold" style={{ fontSize: 11, textAlign: "center", color: colors.navy700 }}>
-        {l}
-      </Text>
-    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
-  statCard: { width: "47.5%", padding: space.lg, gap: 2 },
-  action: { flex: 1, alignItems: "center", gap: space.xs },
-  actionIcon: { width: 56, height: 56, borderRadius: 20, backgroundColor: colors.white, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border, shadowColor: "#1C2670", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  statCard: { flexBasis: "47%", flexGrow: 1, padding: space.md, gap: 4 },
+  statIcon: { width: compact ? 28 : 32, height: compact ? 28 : 32, borderRadius: 9, alignItems: "center", justifyContent: "center" },
 });

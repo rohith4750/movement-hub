@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
@@ -238,19 +239,28 @@ export default function Book() {
       <TopBar title={rescheduleId ? "Reschedule" : "Book appointment"} onBack={back} />
 
       {/* Progress: tap a finished step to go back to it */}
-      <Row gap={6} style={{ flexWrap: "wrap" }}>
-        {steps.map((s, i) => {
+      <View style={styles.stepper}>
+        {steps.map((st, i) => {
           const done = i < index;
           const on = i === index;
           return (
-            <Pressable key={s} disabled={!done} onPress={() => setStep(s)} accessibilityRole="button" accessibilityState={{ selected: on }} style={[styles.stepPill, on && styles.stepOn, done && styles.stepDone]}>
-              <Text weight="semibold" style={{ fontSize: 12, color: on ? colors.white : done ? colors.navy700 : colors.muted }}>
-                {i + 1}. {STEP_LABEL[s]}
-              </Text>
+            <Pressable key={st} disabled={!done} onPress={() => setStep(st)} accessibilityRole="button" accessibilityState={{ selected: on }} style={styles.stepItem}>
+              <View style={styles.stepTrack}>
+                <View style={[styles.stepLine, i === 0 && { opacity: 0 }, (done || on) && styles.stepLineOn]} />
+                <View style={[styles.stepDot, (on || done) && styles.stepDotOn]}>
+                  {done ? (
+                    <Ionicons name="checkmark" size={15} color={colors.navy950} />
+                  ) : (
+                    <Text weight="bold" style={{ fontSize: 13, color: on ? colors.navy950 : colors.muted }}>{i + 1}</Text>
+                  )}
+                </View>
+                <View style={[styles.stepLine, i === steps.length - 1 && { opacity: 0 }, done && styles.stepLineOn]} />
+              </View>
+              <Text weight="semibold" style={{ fontSize: 11, color: on ? colors.navy800 : colors.muted }} numberOfLines={1}>{STEP_LABEL[st]}</Text>
             </Pressable>
           );
         })}
-      </Row>
+      </View>
 
       {rescheduleId && original.data ? (
         <Card style={{ backgroundColor: colors.navy50 }}>
@@ -734,9 +744,13 @@ function QuickAddressForm({ patientId, onCreated, onCancel }: { patientId: strin
 
 const styles = StyleSheet.create({
   pick: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider },
-  stepPill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
-  stepOn: { backgroundColor: colors.navy700, borderColor: colors.navy700 },
-  stepDone: { backgroundColor: colors.gold100, borderColor: colors.gold300 },
+  stepper: { flexDirection: "row" },
+  stepItem: { flex: 1, alignItems: "center", gap: 4 },
+  stepTrack: { flexDirection: "row", alignItems: "center", width: "100%" },
+  stepLine: { flex: 1, height: 2, backgroundColor: colors.border },
+  stepLineOn: { backgroundColor: colors.gold500 },
+  stepDot: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.white, alignItems: "center", justifyContent: "center" },
+  stepDotOn: { backgroundColor: colors.gold500, borderColor: colors.gold500 },
   typeRow: { flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
   typeOn: { borderColor: colors.gold500, backgroundColor: colors.gold100 },
   chip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },

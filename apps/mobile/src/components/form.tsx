@@ -11,7 +11,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { hasRole, useAuth, type Role } from "@/lib/auth";
 import { ageFrom, date as fmtDate, dobFromAge } from "@/lib/format";
 import { useTherapists } from "@/lib/queries";
-import { colors, radius, shadow, space } from "@/theme";
+import { colors, compact, control, radius, shadow, space } from "@/theme";
 import { Button, Caption, Empty, Field, H2, Input, Muted, Row, Screen, Text, TopBar } from "./ui";
 
 type IconName = ComponentProps<typeof Ionicons>["name"];
@@ -262,7 +262,7 @@ export function ListRow({ icon, title, subtitle, onPress, right, danger }: { ico
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? "button" : undefined} style={({ pressed }) => [styles.listRow, pressed && onPress && { opacity: 0.85 }]}>
       {icon ? (
         <View style={[styles.listIcon, danger && { backgroundColor: colors.dangerBg }]}>
-          <Ionicons name={icon} size={20} color={danger ? colors.danger : colors.navy800} />
+          <Ionicons name={icon} size={compact ? 20 : 22} color={danger ? colors.danger : colors.gold700} />
         </View>
       ) : null}
       <View style={{ flex: 1, gap: 2 }}>
@@ -278,10 +278,7 @@ export function ListRow({ icon, title, subtitle, onPress, right, danger }: { ico
 export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <Row style={{ justifyContent: "space-between", marginTop: space.xs }}>
-      <Row gap={8}>
-        <View style={{ width: 3, height: 14, borderRadius: 2, backgroundColor: colors.gold500 }} />
-        <Text weight="bold" style={{ fontSize: 12, letterSpacing: 1.2, color: colors.navy700, textTransform: "uppercase" }}>{children}</Text>
-      </Row>
+      <Text weight="bold" style={{ fontSize: 17, letterSpacing: -0.2, color: colors.navy900 }}>{children}</Text>
       {action}
     </Row>
   );
@@ -308,12 +305,26 @@ export function RequireRole({ roles, title, children }: { roles: Role[]; title: 
 export const goBack = (fallback: Parameters<typeof router.replace>[0] = "/") => (router.canGoBack() ? router.back() : router.replace(fallback));
 
 /** Simple stat tile used on dashboards and reports. */
-export function StatTile({ label, value, hint, good }: { label: string; value: string | number; hint?: string; good?: boolean }) {
+export function StatTile({ label, value, hint, good, icon, tint, tone }: { label: string; value: string | number; hint?: string; good?: boolean; icon?: IconName; tint?: string; tone?: string }) {
+  const text = (
+    <View style={{ flex: 1, gap: 2 }}>
+      <Text weight="semibold" style={{ fontSize: 11, color: colors.muted, letterSpacing: 0.6, textTransform: "uppercase" }}>{label}</Text>
+      <Text weight="bold" style={{ fontSize: icon ? 22 : 28, color: good ? colors.success : colors.navy900, letterSpacing: -0.5 }} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+      {hint ? <Muted style={{ fontSize: 11 }} numberOfLines={1}>{hint}</Muted> : null}
+    </View>
+  );
   return (
     <View style={styles.stat}>
-      <Text weight="semibold" style={{ fontSize: 11, color: colors.muted, letterSpacing: 0.6, textTransform: "uppercase" }}>{label}</Text>
-      <Text weight="bold" style={{ fontSize: 28, color: good ? colors.success : colors.navy900, letterSpacing: -0.5 }} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
-      {hint ? <Muted style={{ fontSize: 11 }} numberOfLines={1}>{hint}</Muted> : null}
+      {icon ? (
+        <Row gap={space.md} style={{ alignItems: "flex-start" }}>
+          <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: tint ?? colors.navy50, alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name={icon} size={20} color={tone ?? colors.navy700} />
+          </View>
+          {text}
+        </Row>
+      ) : (
+        text
+      )}
     </View>
   );
 }
@@ -353,15 +364,15 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: radius.md,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    minHeight: 52,
+    paddingHorizontal: control.padH,
+    paddingVertical: control.padV,
+    minHeight: control.minHeight,
   },
   selectBox: { flex: 1, justifyContent: "center", padding: space.lg },
   selectCard: { backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, maxHeight: "75%", ...shadow },
   option: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 12, paddingHorizontal: space.sm, borderRadius: radius.sm },
-  listRow: { flexDirection: "row", alignItems: "center", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: 14, borderWidth: 1, borderColor: colors.border, ...shadow },
-  listIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center" },
+  listRow: { flexDirection: "row", alignItems: "center", gap: space.md, backgroundColor: colors.white, borderRadius: radius.lg, padding: compact ? 12 : 14, borderWidth: 1, borderColor: colors.border, ...shadow },
+  listIcon: { width: compact ? 40 : 46, height: compact ? 40 : 46, borderRadius: 12, backgroundColor: colors.gold100, alignItems: "center", justifyContent: "center" },
   stat: { flexBasis: "47%", flexGrow: 1, backgroundColor: colors.white, borderRadius: radius.lg, padding: space.lg, borderWidth: 1, borderColor: colors.border, gap: 4, ...shadow },
 });
 

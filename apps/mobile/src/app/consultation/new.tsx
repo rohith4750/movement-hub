@@ -169,7 +169,24 @@ function ConsultationForm({ appt, draft }: { appt: Appointment; draft: Consultat
             : null;
 
   return (
-    <Screen edges={["top", "bottom"]}>
+    <Screen
+      edges={["top", "bottom"]}
+      footer={
+        <Row gap={space.md}>
+          {!closed && mine && isConsult ? (
+            <Button title="Save as draft" variant="ghost" icon="document-outline" onPress={() => saveDraft.mutate()} disabled={save.isPending} loading={saveDraft.isPending} style={{ flex: 1 }} />
+          ) : null}
+          <Button
+            title={makePlan ? "Finish & activate plan" : "Finish consultation"}
+            icon="checkmark-done-outline"
+            onPress={() => save.mutate()}
+            disabled={!!problem || saveDraft.isPending}
+            loading={save.isPending}
+            style={{ flex: 1.5 }}
+          />
+        </Row>
+      }
+    >
       <TopBar title="Consultation" onBack={() => goBack({ pathname: "/appointment/[id]", params: { id: appt.id } })} />
       <Card style={{ backgroundColor: colors.navy700, borderColor: colors.navy700 }}>
         <Text weight="bold" style={{ color: colors.white, fontSize: 18 }}>{fullName(appt.patient)}</Text>
@@ -239,23 +256,6 @@ function ConsultationForm({ appt, draft }: { appt: Appointment; draft: Consultat
         <Muted style={{ fontSize: 12, color: colors.warning }}>Kept the current plan. Turn off “Create treatment plan now” to finish without a new plan.</Muted>
       ) : null}
       {problem ? <Muted style={{ fontSize: 12, color: colors.warning }}>{problem}</Muted> : null}
-      <Button
-        title={makePlan ? "Finish consultation & activate plan" : "Finish consultation"}
-        icon="checkmark-done-outline"
-        onPress={() => save.mutate()}
-        disabled={!!problem || saveDraft.isPending}
-        loading={save.isPending}
-      />
-      {!closed && mine && isConsult ? (
-        <Button
-          title="Save as draft"
-          variant="ghost"
-          icon="document-outline"
-          onPress={() => saveDraft.mutate()}
-          disabled={save.isPending}
-          loading={saveDraft.isPending}
-        />
-      ) : null}
       <Muted style={{ fontSize: 12, textAlign: "center" }}>A draft keeps the notes and assessment; the plan details stay on this screen until you finish.</Muted>
     </Screen>
   );

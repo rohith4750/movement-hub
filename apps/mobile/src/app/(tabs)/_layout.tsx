@@ -1,9 +1,17 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Redirect, Tabs } from "expo-router";
 import type { ComponentProps } from "react";
-import type { ColorValue } from "react-native";
+import { useWindowDimensions, type ColorValue } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { hasRole, useAuth } from "@/lib/auth";
 import { colors, fonts } from "@/theme";
+
+/**
+ * Height of the row that holds the icon and its label (top padding 8 + icon 28 + label 14 + item padding 10 = 60, plus a little air).
+ * The tab bar's own default is 49, which is too short for this design: the labels spilled past the bar and
+ * ended up underneath the phone's back / home / recents buttons. The phone's navigation-bar inset is added below this row.
+ */
+const TAB_ROW_HEIGHT = 66;
 
 type IconName = ComponentProps<typeof Ionicons>["name"];
 type TabIconProps = { color: ColorValue; size: number; focused: boolean };
@@ -22,6 +30,9 @@ const MoreIcon = (p: TabIconProps) => <TabIcon on="grid" off="grid-outline" {...
 export default function TabLayout() {
   const status = useAuth((s) => s.status);
   const user = useAuth((s) => s.user);
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const narrow = width < 340; // the smallest phones: five labels share ~64 dp each, so the text goes one step smaller
   if (status !== "signedIn") return <Redirect href="/login" />;
 
   const show = (ok: boolean) => (ok ? undefined : null); // href: null hides a tab
@@ -33,12 +44,27 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.navy800,
-        tabBarInactiveTintColor: "#9AA1C2",
-        tabBarActiveBackgroundColor: colors.gold100,
-        tabBarLabelStyle: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.1 },
-        tabBarStyle: { backgroundColor: colors.white, borderTopWidth: 0, paddingTop: 8, borderTopLeftRadius: 26, borderTopRightRadius: 26, elevation: 16, shadowColor: "#1C2670", shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: -6 } },
-        tabBarItemStyle: { borderRadius: 18, marginHorizontal: 4, marginBottom: 2 },
+        tabBarActiveTintColor: colors.gold600,
+        tabBarInactiveTintColor: "#8E95B0",
+        // Labels keep one size whatever the phone's "font size" setting is, so they always fit in the bar.
+        tabBarAllowFontScaling: false,
+        tabBarLabelStyle: { fontFamily: fonts.semibold, fontSize: narrow ? 10 : 11, lineHeight: 14, letterSpacing: narrow ? 0 : 0.1 },
+        tabBarStyle: {
+          // An explicit height replaces the default, so the phone's navigation bar (insets.bottom) has to be added here.
+          height: TAB_ROW_HEIGHT + insets.bottom,
+          paddingTop: 8,
+          paddingBottom: insets.bottom,
+          backgroundColor: colors.white,
+          borderTopWidth: 0,
+          borderTopLeftRadius: 26,
+          borderTopRightRadius: 26,
+          elevation: 16,
+          shadowColor: "#0C2344",
+          shadowOpacity: 0.12,
+          shadowRadius: 18,
+          shadowOffset: { width: 0, height: -6 },
+        },
+        tabBarItemStyle: { borderRadius: 18 },
       }}
     >
       <Tabs.Screen name="index" options={{ title: "Today", tabBarIcon: TodayIcon }} />

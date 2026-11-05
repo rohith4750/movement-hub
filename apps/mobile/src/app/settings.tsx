@@ -203,8 +203,9 @@ function TreatmentPrices() {
 
   return (
     <>
-      <SectionTitle>Treatment prices (₹ each)</SectionTitle>
+      <SectionTitle>Treatment prices (₹ for 1 session)</SectionTitle>
       <Card style={{ gap: space.md }}>
+        <Muted style={{ fontSize: 12 }}>The price of one session of each therapy. Package prices are worked out from these: the therapies chosen × the number of sessions.</Muted>
         {q.isLoading ? (
           <Loading />
         ) : q.error ? (

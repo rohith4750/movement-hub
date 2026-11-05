@@ -30,7 +30,8 @@ packageRouter.get(
   validate({ query: z.object({ includeInactive: z.coerce.boolean().optional() }) }),
   handler(async (req, res) => {
     const includeInactive = q<{ includeInactive?: boolean }>(req).includeInactive && req.user!.role !== "PATIENT";
-    ok(res, await prisma.treatmentPackage.findMany({ where: includeInactive ? {} : { isActive: true }, orderBy: { price: "asc" } }));
+    // Packages built on the spot for one patient (therapies + sessions) are kept out of the catalogue.
+    ok(res, await prisma.treatmentPackage.findMany({ where: includeInactive ? { isOneOff: false } : { isActive: true, isOneOff: false }, orderBy: { price: "asc" } }));
   }),
 );
 
@@ -54,6 +55,36 @@ packageRouter.patch("/:id/status", authorize("ADMIN"), validate({ params: idPara
 }));
 
 /* ─────────────── Patient packages ─────────────── */
+
+/**
+ * A package made from therapies: the price of one session is the sum of the chosen therapies' prices in
+ * Settings → Treatment prices, and the package costs that × the number of sessions. It is stored as a one-off
+ * package (not offered in the catalogue) so the patient's package list, sessions and invoice work as usual.
+ * The same therapies, sessions, validity and price reuse one row, so reports aren't flooded.
+ */
+async function therapyPackage(tx: Prisma.TransactionClient, therapies: string[], sessions: number, validityDays: number) {
+  const names = [...new Set(therapies.map((t) => t.trim()).filter(Boolean))];
+  const priced = await tx.treatmentPrice.findMany({ where: { category: { in: names }, isActive: true } });
+  const missing = names.filter((n) => !priced.some((p) => p.category === n));
+  if (missing.length) throw unprocessable("UNKNOWN_THERAPY", `No price is set for: ${missing.join(", ")}. Add it in Settings → Treatment prices.`);
+  const perSession = priced.reduce((n, p) => n + Number(p.price), 0);
+  const price = Math.round(perSession * sessions * 100) / 100;
+  const name = names.join(" + ");
+  const existing = await tx.treatmentPackage.findFirst({ where: { isOneOff: true, name, sessionCount: sessions, validityDays, price } });
+  if (existing) return existing;
+  return tx.treatmentPackage.create({
+    data: {
+      name,
+      tier: "CUSTOM",
+      description: `Built from therapies: ${perSession} per session × ${sessions} session${sessions === 1 ? "" : "s"}.`,
+      sessionCount: sessions,
+      validityDays,
+      price,
+      isActive: false,
+      isOneOff: true,
+    },
+  });
+}
 
 const ppInclude = {
   package: true,
@@ -91,27 +122,38 @@ patientPackageRouter.post(
   "/",
   authorize("RECEPTIONIST", "ACCOUNTANT", "ADMIN", "PATIENT"),
   validate({
-    body: z.object({
-      patientId: z.string().uuid().optional(),
-      packageId: z.string().uuid(),
-      treatmentPlanId: z.string().uuid().optional(),
-      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-      discountAmount: z.number().nonnegative().default(0),
-      discountReason: z.string().optional(),
-      // Custom packages: staff may override sessions/price
-      customSessions: z.number().int().positive().optional(),
-      customPrice: z.number().nonnegative().optional(),
-    }),
+    body: z
+      .object({
+        patientId: z.string().uuid().optional(),
+        /** A catalogue package… */
+        packageId: z.string().uuid().optional(),
+        /** …or therapies from Settings → Treatment prices plus a number of sessions (price = per-session × sessions). */
+        therapies: z.array(z.string().trim().min(2).max(60)).min(1).max(12).optional(),
+        sessions: z.number().int().min(1).max(500).optional(),
+        validityDays: z.number().int().min(1).max(730).optional(),
+        treatmentPlanId: z.string().uuid().optional(),
+        startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        discountAmount: z.number().nonnegative().default(0),
+        discountReason: z.string().optional(),
+        // Custom packages: staff may override sessions/price
+        customSessions: z.number().int().positive().optional(),
+        customPrice: z.number().nonnegative().optional(),
+      })
+      .refine((b) => !!b.packageId !== !!b.therapies, { message: "Choose a package, or therapies with a number of sessions", path: ["packageId"] })
+      .refine((b) => !b.therapies || !!b.sessions, { message: "Enter the number of sessions", path: ["sessions"] }),
   }),
   handler(async (req, res) => {
     const patientId = scopePatient(req, req.body.patientId);
     if (!patientId) throw badRequest("patientId is required");
     const isPatientUser = req.user!.role === "PATIENT";
-    if (isPatientUser && (req.body.discountAmount || req.body.customSessions || req.body.customPrice !== undefined)) throw badRequest("Discounts and custom pricing are staff-only");
+    if (isPatientUser && (req.body.discountAmount || req.body.customSessions || req.body.customPrice !== undefined || req.body.therapies)) throw badRequest("Discounts, custom pricing and therapy packages are staff-only");
 
     const result = await prisma.$transaction(async (tx) => {
-      const pkg = await tx.treatmentPackage.findUniqueOrThrow({ where: { id: req.body.packageId } });
-      if (!pkg.isActive) throw unprocessable("PACKAGE_INACTIVE", "This package is no longer offered");
+      const byTherapy = !!req.body.therapies;
+      const pkg = byTherapy
+        ? await therapyPackage(tx, req.body.therapies as string[], req.body.sessions as number, req.body.validityDays ?? 90)
+        : await tx.treatmentPackage.findUniqueOrThrow({ where: { id: req.body.packageId as string } });
+      if (!byTherapy && !pkg.isActive) throw unprocessable("PACKAGE_INACTIVE", "This package is no longer offered");
       if (req.body.treatmentPlanId) {
         const plan = await tx.treatmentPlan.findUniqueOrThrow({ where: { id: req.body.treatmentPlanId } });
         if (plan.patientId !== patientId) throw badRequest("Treatment plan belongs to another patient");
@@ -136,7 +178,7 @@ patientPackageRouter.post(
         tx,
         {
           patientId,
-          items: [{ type: "PACKAGE", description: `${pkg.name} – ${sessions} sessions`, quantity: 1, unitPrice: price, patientPackageId: pp.id }],
+          items: [{ type: "PACKAGE", description: `${pkg.name} – ${sessions} session${sessions === 1 ? "" : "s"}`, quantity: 1, unitPrice: price, patientPackageId: pp.id }],
           discountAmount: req.body.discountAmount,
           discountReason: req.body.discountReason,
         },

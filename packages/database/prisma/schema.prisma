@@ -732,6 +732,8 @@ model TreatmentPackage {
   price        Decimal     @db.Decimal(10, 2)
   includesHomeVisit Boolean @default(false)
   isActive     Boolean     @default(true)
+  /// Made on the spot when staff build a package from therapies + sessions for one patient. Kept out of the catalogue list.
+  isOneOff     Boolean     @default(false)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 

@@ -13,6 +13,7 @@ import { AppState, Platform, type AppStateStatus } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth";
 import { usePlannerStore } from "@/lib/planner-store";
+import { welcome } from "@/lib/welcome";
 import { ApiError, warmUp } from "@/lib/api";
 import { colors } from "@/theme";
 
@@ -80,14 +81,16 @@ export default function RootLayout() {
   }, [status, queryClient]);
 
   // Redirect to /login when signed out, regardless of which screen the user is on.
+  // The very first time after the app opens, the welcome screen comes first, then the PIN screen.
   useEffect(() => {
     if (status === "loading") return;
     const inLogin = segments[0] === "login";
-    if (status === "signedOut" && !inLogin) {
+    const inWelcome = segments[0] === "welcome";
+    if (status === "signedOut" && !inLogin && !inWelcome) {
       // Use replace so the back button doesn't go to a protected screen.
-      router.replace("/login");
+      router.replace(welcome.seen ? "/login" : "/welcome");
       hasNavigated.current = true;
-    } else if (status === "signedIn" && inLogin) {
+    } else if (status === "signedIn" && (inLogin || inWelcome)) {
       router.replace("/");
       hasNavigated.current = true;
     }
@@ -103,10 +106,12 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
-        <StatusBar style={segments[0] === "login" ? "light" : "dark"} />
+        {/* Every screen has a navy top band (light icons). The welcome picture covers the whole screen, so the status bar is hidden there. */}
+        <StatusBar style="light" hidden={segments[0] === "welcome"} />
         {/* Every file in src/app is a route; they are registered automatically. */}
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="welcome" options={{ animation: "fade" }} />
           <Stack.Screen name="login" options={{ animation: "fade" }} />
         </Stack>
       </QueryClientProvider>

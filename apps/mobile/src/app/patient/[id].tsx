@@ -8,15 +8,15 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Linking, Pressable, View } from "react-native";
 import { QuickPlanForm } from "@/components/clinical-plan-form";
-import { ListRow, SectionTitle, Sheet } from "@/components/form";
+import { SectionTitle, Sheet } from "@/components/form";
 import { MedicalHistorySheet, PainProgressCard, SellPackageSheet } from "@/components/patient-sheets";
 import type { MedicalHistoryEntry } from "@/lib/types";
-import { Badge, Button, Card, ErrorBox, H2, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
+import { ActionTile, Avatar, Badge, Button, Card, ErrorBox, H2, KeyValue, Loading, Muted, Row, Screen, Text, TileGrid, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
 import { ageYears, date, dateTime, fullName, label } from "@/lib/format";
-import { colors, space } from "@/theme";
+import { colors, compact, space } from "@/theme";
 
 type Panel = "history" | "package" | "plan" | null;
 
@@ -70,7 +70,7 @@ export default function PatientScreen() {
         right={
           canEdit && p ? (
             <Pressable onPress={() => router.push({ pathname: "/patient/edit/[id]", params: { id: p.id } })} hitSlop={10} accessibilityRole="button" accessibilityLabel="Edit patient">
-              <Ionicons name="create-outline" size={22} color={colors.navy700} />
+              <Ionicons name="create-outline" size={22} color={colors.white} />
             </Pressable>
           ) : undefined
         }
@@ -81,20 +81,27 @@ export default function PatientScreen() {
         <ErrorBox error={q.error} onRetry={() => q.refetch()} />
       ) : p ? (
         <>
-          <Card style={{ backgroundColor: colors.navy700, borderColor: colors.navy700 }}>
-            <Row style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-              <Text weight="bold" style={{ color: colors.white, fontSize: 20, flex: 1 }}>{fullName(p)}</Text>
-              <CategoryBadge visits={p.visits} />
+          <Card>
+            <Row gap={space.md} style={{ alignItems: "flex-start" }}>
+              <Avatar name={fullName(p)} size={compact ? 48 : 58} />
+              {/* The name has the full width; the code and category badge share the next line, details the one after. */}
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text weight="bold" style={{ fontSize: 19 }}>{fullName(p)}</Text>
+                <Row gap={space.sm} style={{ flexWrap: "wrap" }}>
+                  <Text weight="semibold" style={{ color: colors.gold700 }}>{p.patientCode}</Text>
+                  <CategoryBadge visits={p.visits} />
+                </Row>
+                <Text style={{ color: colors.gold700 }}>{p.patientType === "WALK_IN" ? "Walk-in" : "Regular"} · {label(p.gender)}{age !== null ? ` · ${age} yrs` : ""}</Text>
+                <Pressable onPress={() => Linking.openURL(`tel:${p.phone}`)} accessibilityRole="link" accessibilityLabel={`Call ${p.phone}`}>
+                  <Row gap={6}>
+                    <Ionicons name="call" size={14} color={colors.navy600} />
+                    <Text style={{ color: colors.navy600, textDecorationLine: "underline" }}>{p.phone}</Text>
+                  </Row>
+                </Pressable>
+              </View>
             </Row>
-            <Text style={{ color: colors.gold300 }}>{p.patientCode} · {p.patientType === "WALK_IN" ? "Walk-in" : "Regular"} · {label(p.gender)}{age !== null ? ` · ${age} yrs` : ""}</Text>
-            {p.primaryTherapist ? <Text style={{ color: colors.navy100, fontSize: 13 }}>Regular physio: {p.primaryTherapist.user.name}</Text> : null}
-            {p.visits ? <Text style={{ color: colors.navy100, fontSize: 13 }}>{visitSummary(p.visits)}</Text> : null}
-            <Pressable onPress={() => Linking.openURL(`tel:${p.phone}`)} accessibilityRole="link" accessibilityLabel={`Call ${p.phone}`}>
-              <Row gap={6} style={{ marginTop: space.xs }}>
-                <Ionicons name="call" size={14} color={colors.navy100} />
-                <Text style={{ color: colors.navy100, textDecorationLine: "underline" }}>{p.phone}</Text>
-              </Row>
-            </Pressable>
+            {p.primaryTherapist ? <Muted style={{ fontSize: 13 }}>Regular physio: {p.primaryTherapist.user.name}</Muted> : null}
+            {p.visits ? <Muted style={{ fontSize: 13 }}>{visitSummary(p.visits)}</Muted> : null}
           </Card>
 
           {canBook ? (
@@ -104,9 +111,21 @@ export default function PatientScreen() {
           {canSell || canPlan || canAddHistory ? (
             <View style={{ gap: space.sm }}>
               <SectionTitle>Actions</SectionTitle>
-              {canPlan ? <ListRow icon="clipboard-outline" title="Create treatment plan" subtitle="Write a plan for this patient" onPress={() => router.push({ pathname: "/plan/new", params: { patientId: id } })} /> : null}
-              {canSell ? <ListRow icon="pricetags-outline" title="Sell package" subtitle="Creates the package and a GST invoice" onPress={() => setPanel("package")} /> : null}
-              {canAddHistory ? <ListRow icon="medkit-outline" title="Add medical history" subtitle="Conditions, medications, allergies" onPress={() => { setEditingHistory(null); setPanel("history"); }} /> : null}
+              <TileGrid>
+                {canPlan ? <ActionTile icon="clipboard-outline" title="Create treatment plan" onPress={() => router.push({ pathname: "/plan/new", params: { patientId: id } })} /> : null}
+                {canSell ? <ActionTile icon="pricetags-outline" title="Sell package" onPress={() => setPanel("package")} /> : null}
+                {canAddHistory ? (
+                  <ActionTile
+                    icon="medkit-outline"
+                    title="Add medical history"
+                    onPress={() => {
+                      setEditingHistory(null);
+                      setPanel("history");
+                    }}
+                  />
+                ) : null}
+                {canEdit ? <ActionTile icon="create-outline" title="Edit patient" onPress={() => router.push({ pathname: "/patient/edit/[id]", params: { id: p.id } })} /> : null}
+              </TileGrid>
             </View>
           ) : null}
 

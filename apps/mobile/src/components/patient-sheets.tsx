@@ -4,7 +4,8 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Switch, View } from "react-native";
 import { DateField, Sheet, StatTile } from "@/components/form";
-import { Button, Card, ErrorBox, Field, H2, Input, Loading, Muted, ProgressBar, Row, Text } from "@/components/ui";
+import { Button, Card, Chips, ErrorBox, Field, H2, Input, Loading, Muted, ProgressBar, Row, Text } from "@/components/ui";
+import { emptyTherapyPackage, TherapyPackageBuilder, useTherapyTotals, type TherapyPackageForm } from "@/components/therapy-package";
 import { api } from "@/lib/api";
 import { inr, today } from "@/lib/format";
 import { qk } from "@/lib/query-keys";
@@ -95,19 +96,29 @@ interface PackageDef {
   description: string | null;
 }
 
-export function SellPackageSheet({ patientId, open, onClose }: { patientId: string; open: boolean; onClose: () => void }) {
-  const pkgs = useQuery({ queryKey: qk.packages("active"), queryFn: () => api.get<PackageDef[]>("/packages"), enabled: open });
+type SellMode = "therapy" | "catalogue";
+
+/**
+ * Sell a package to a patient. Either build it from therapies (price = the one-session prices in Settings of the
+ * chosen therapies × the number of sessions), or pick one from the catalogue. An invoice with GST is created.
+ */
+export function SellPackageSheet({ patientId, patientName, open, onClose }: { patientId: string; patientName?: string; open: boolean; onClose: () => void }) {
+  const [mode, setMode] = useState<SellMode>("therapy");
+  const [form, setForm] = useState<TherapyPackageForm>(emptyTherapyPackage);
+  const totals = useTherapyTotals(form);
+  const pkgs = useQuery({ queryKey: qk.packages("active"), queryFn: () => api.get<PackageDef[]>("/packages"), enabled: open && mode === "catalogue" });
   const [packageId, setPackageId] = useState("");
   const [discount, setDiscount] = useState("");
   const [reason, setReason] = useState("");
   const chosen = pkgs.data?.find((p) => p.id === packageId);
   const discountNum = discount ? Number(discount) : 0;
+  const price = mode === "therapy" ? totals.total : chosen ? Number(chosen.price) : 0;
 
   const sell = useAction(
     () =>
       api.post<{ invoice: { id: string } }>("/patient-packages", {
         patientId,
-        packageId,
+        ...(mode === "therapy" ? { therapies: form.therapies, sessions: totals.sessions, validityDays: totals.validity } : { packageId }),
         discountAmount: discountNum,
         discountReason: reason.trim() || undefined,
       }),
@@ -116,6 +127,7 @@ export function SellPackageSheet({ patientId, open, onClose }: { patientId: stri
       onSuccess: (r) => {
         onClose();
         setPackageId("");
+        setForm(emptyTherapyPackage());
         setDiscount("");
         setReason("");
         router.push({ pathname: "/invoice/[id]", params: { id: r.invoice.id } });
@@ -123,22 +135,38 @@ export function SellPackageSheet({ patientId, open, onClose }: { patientId: stri
     },
   );
 
-  const problem = !packageId
-    ? "Choose a package"
-    : chosen && discountNum > Number(chosen.price)
-      ? "Discount can't be more than the price"
-      : discountNum > 0 && !reason.trim()
-        ? "Add a reason for the discount"
-        : null;
+  const discountProblem = discountNum > price ? "Discount can't be more than the price" : discountNum > 0 && !reason.trim() ? "Add a reason for the discount" : null;
+  const problem =
+    mode === "therapy"
+      ? form.therapies.length === 0
+        ? "Tick at least one therapy"
+        : !totals.sessionsOk
+          ? "Sessions must be between 1 and 500"
+          : !totals.validityOk
+            ? "Validity must be 1–730 days"
+            : discountProblem
+      : !packageId
+        ? "Choose a package"
+        : discountProblem;
 
   return (
     <Sheet
       open={open}
       onClose={onClose}
-      title="Sell treatment package"
+      title={patientName ? `Sell package · ${patientName}` : "Sell treatment package"}
       footer={<Button title="Create package & invoice" icon="pricetags-outline" onPress={() => sell.mutate()} disabled={!!problem} loading={sell.isPending} />}
     >
-      {pkgs.isLoading ? (
+      <Chips<SellMode>
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: "therapy", label: "By therapy" },
+          { value: "catalogue", label: "From catalogue" },
+        ]}
+      />
+      {mode === "therapy" ? (
+        <TherapyPackageBuilder form={form} onChange={setForm} />
+      ) : pkgs.isLoading ? (
         <Loading />
       ) : pkgs.error ? (
         <ErrorBox error={pkgs.error} onRetry={() => pkgs.refetch()} />
@@ -166,6 +194,7 @@ export function SellPackageSheet({ patientId, open, onClose }: { patientId: stri
           <Field label="Discount reason"><Input value={reason} onChangeText={setReason} /></Field>
         </View>
       </Row>
+      {price > 0 ? <Muted style={{ fontSize: 12 }}>To pay, before GST: {inr(Math.max(price - discountNum, 0))}</Muted> : null}
       <Muted style={{ fontSize: 12 }}>An invoice with GST is created automatically. Collect payment from the invoice.</Muted>
       {problem ? <Muted style={{ fontSize: 12, color: colors.warning }}>{problem}</Muted> : null}
       <ErrorBox error={sell.error} />
@@ -204,7 +233,7 @@ export function PainProgressCard({ patientId }: { patientId: string }) {
         <>
           <View style={styles.tiles}>
             <StatTile label="Active plan" value={p.activePlan ? `${p.activePlan.percent}%` : "—"} hint={p.activePlan ? `${p.activePlan.completedSessions}/${p.activePlan.prescribedSessions} sessions` : undefined} />
-            <StatTile label="Pain start → now" value={p.initialPain !== null || p.latestPain !== null ? `${p.initialPain ?? "–"} → ${p.latestPain ?? "–"}` : "—"} hint="0–10 scale" good={p.painReduction !== null && p.painReduction > 0} />
+            <StatTile label="Pain trend" value={p.initialPain !== null || p.latestPain !== null ? `${p.initialPain ?? "–"} → ${p.latestPain ?? "–"}` : "—"} hint="start → now, 0–10" good={p.painReduction !== null && p.painReduction > 0} />
           </View>
           {p.activePlan ? <ProgressBar percent={p.activePlan.percent} /> : null}
           {p.timeline.length === 0 ? (

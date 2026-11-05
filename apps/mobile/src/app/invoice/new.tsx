@@ -131,7 +131,21 @@ function NewInvoiceForm() {
   const missing = !patient ? "Choose the patient" : !linesOk ? "Each line needs a description, quantity of 1+ and a price" : !discountOk ? "Discount must be 0 or more" : null;
 
   return (
-    <Screen edges={["top", "bottom"]}>
+    <Screen
+      edges={["top", "bottom"]}
+      footer={
+        <Row gap={space.sm}>
+          <View style={{ flex: 0.9 }}>
+            <Muted style={{ fontSize: 11 }}>Total</Muted>
+            <Text weight="bold" style={{ fontSize: 18, color: colors.navy800 }} numberOfLines={1} adjustsFontSizeToFit>
+              {preview.data && patient && linesOk && discountOk ? inr(preview.data.totalAmount) : "—"}
+            </Text>
+          </View>
+          <Button title="Save draft" variant="ghost" onPress={() => save.mutate(false)} disabled={!!missing || save.isPending} style={{ flex: 1 }} />
+          <Button title="Issue invoice" icon="checkmark-circle-outline" onPress={() => save.mutate(true)} disabled={!!missing} loading={save.isPending} style={{ flex: 1.2 }} />
+        </Row>
+      }
+    >
       <TopBar title="New invoice" onBack={() => goBack("/billing")} />
 
       <Card>
@@ -301,10 +315,6 @@ function NewInvoiceForm() {
         ) : null}
         <ErrorBox error={save.error} />
         {missing ? <Muted style={{ fontSize: 12, color: colors.warning }}>{missing}</Muted> : null}
-        <Row>
-          <Button title="Save draft" variant="ghost" onPress={() => save.mutate(false)} disabled={!!missing || save.isPending} style={{ flex: 1 }} />
-          <Button title="Issue invoice" icon="checkmark-circle-outline" onPress={() => save.mutate(true)} disabled={!!missing} loading={save.isPending} style={{ flex: 1 }} />
-        </Row>
       </Card>
     </Screen>
   );

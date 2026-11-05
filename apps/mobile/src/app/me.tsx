@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View } from "react-native";
 import { PinInput, PIN_LENGTH } from "@/components/pin-input";
-import { TopBar, BrandHeader, Button, Card, ErrorBox, Field, H2, KeyValue, Loading, Muted, Row, Screen, Text } from "@/components/ui";
+import { Avatar, TopBar, Button, Card, ErrorBox, Field, H2, KeyValue, Loading, Muted, Row, Screen, Text } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth, type Session } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
@@ -63,7 +63,17 @@ export default function Profile() {
   return (
     <Screen edges={["top", "bottom"]} refreshing={me.isRefetching} onRefresh={() => me.refetch()}>
       <TopBar title="My account" onBack={() => goBack("/more")} />
-      <BrandHeader title={me.data?.name ?? "My account"} subtitle={me.data ? label(me.data.role) : undefined} />
+      {me.data ? (
+        <Card>
+          <Row gap={space.md}>
+            <Avatar name={me.data.name} size={60} tint={colors.gold100} />
+            <View style={{ flex: 1 }}>
+              <Text weight="bold" style={{ fontSize: 18 }} numberOfLines={1}>{me.data.name}</Text>
+              <Muted>{label(me.data.role)}</Muted>
+            </View>
+          </Row>
+        </Card>
+      ) : null}
 
       {me.isLoading ? (
         <Loading />

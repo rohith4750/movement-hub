@@ -71,8 +71,11 @@ export default function SessionScreen() {
   );
 
   // Any physiotherapist (or Super Admin) can run a session; if it isn't theirs they must say why.
+  // The server decides by comparing the signed-in user's therapist profile with the session's therapist, so we do the same:
+  // a Super Admin has no therapist profile, which means they are covering and must give a reason too.
   const canAct = user?.role === "SUPER_ADMIN" || user?.role === "PHYSIOTHERAPIST";
-  const isOwner = user?.role === "SUPER_ADMIN" || (!!s && user?.therapistId === s.therapist.id);
+  const myTherapistId = user ? user.therapistId : null;
+  const isOwner = !!s && !!myTherapistId && myTherapistId === s.therapist.id;
   const needsReason = canAct && !isOwner && !s?.coverReason;
   const reasonMissing = needsReason && coverReason.trim().length < 3;
   const reasonField = needsReason ? (
@@ -82,8 +85,18 @@ export default function SessionScreen() {
   ) : null;
   const back = () => (router.canGoBack() ? router.back() : router.replace("/sessions"));
 
+  // The one main action for the session's state sits in the pinned footer.
+  const sessionFooter =
+    canAct && s ? (
+      s.status === "SCHEDULED" ? (
+        <Button title="Start session" icon="play-circle-outline" onPress={() => start.mutate()} loading={start.isPending} disabled={reasonMissing} />
+      ) : s.status === "IN_PROGRESS" ? (
+        <Button title="Complete session" variant="gold" icon="checkmark-done-outline" onPress={() => complete.mutate()} loading={complete.isPending} disabled={reasonMissing} />
+      ) : undefined
+    ) : undefined;
+
   return (
-    <Screen edges={["top", "bottom"]} refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
+    <Screen edges={["top", "bottom"]} refreshing={q.isRefetching} onRefresh={() => q.refetch()} footer={sessionFooter}>
       <TopBar title="Therapy session" onBack={back} />
       {q.isLoading ? (
         <Loading />
@@ -135,7 +148,6 @@ export default function SessionScreen() {
               <PainScale label="Pain before treatment" value={before} onChange={setPainBefore} />
               {reasonField}
               <ErrorBox error={start.error} />
-              <Button title="Start session" icon="play-circle-outline" onPress={() => start.mutate()} loading={start.isPending} disabled={reasonMissing} />
             </Card>
           ) : s.status === "IN_PROGRESS" ? (
             <Card style={{ gap: space.md }}>
@@ -170,7 +182,6 @@ export default function SessionScreen() {
               <Field label="Home advice"><Input multiline value={advice} onChangeText={setAdvice} placeholder="Exercises to do at home" /></Field>
               {reasonField}
               <ErrorBox error={complete.error} />
-              <Button title="Complete session" variant="gold" icon="checkmark-done-outline" onPress={() => complete.mutate()} loading={complete.isPending} disabled={reasonMissing} />
             </Card>
           ) : (
             <Card>

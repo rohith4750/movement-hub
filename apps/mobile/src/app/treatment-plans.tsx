@@ -7,7 +7,7 @@ import { goBack, RequireRole } from "@/components/form";
 import { Badge, Button, Card, Chips, Empty, ErrorBox, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { useHasRole } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { date, fullName } from "@/lib/format";
+import { fullName, shortDate } from "@/lib/format";
 import { qk } from "@/lib/query-keys";
 import { colors, radius, space } from "@/theme";
 
@@ -50,9 +50,13 @@ function PlansList() {
   const rows = q.data?.data ?? [];
 
   return (
-    <Screen edges={["top", "bottom"]} refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
+    <Screen
+      edges={["top", "bottom"]}
+      refreshing={q.isRefetching}
+      onRefresh={() => q.refetch()}
+      footer={canCreate ? <Button title="New plan" variant="gold" icon="add-circle-outline" onPress={() => router.push("/plan/new")} /> : undefined}
+    >
       <TopBar title="Treatment plans" onBack={() => goBack("/more")} />
-      {canCreate ? <Button title="New plan" variant="gold" icon="add-circle-outline" onPress={() => router.push("/plan/new")} /> : null}
       <Muted style={{ fontSize: 12 }}>Plans are written during a consultation, or from a patient&apos;s profile.</Muted>
 
       <Row style={styles.search}>
@@ -90,13 +94,13 @@ function PlansList() {
             <Pressable key={p.id} onPress={() => router.push({ pathname: "/plan/[id]", params: { id: p.id } })} accessibilityRole="button" accessibilityLabel={`${p.title}, ${fullName(p.patient)}`}>
               <Card>
                 <Row style={{ justifyContent: "space-between" }}>
-                  <Text weight="bold" style={{ flex: 1, fontSize: 15 }} numberOfLines={1}>{p.title}</Text>
+                  <Text weight="bold" style={{ flex: 1, fontSize: 15 }} numberOfLines={2}>{p.title}</Text>
                   <Badge status={p.status} />
                 </Row>
                 <Text weight="semibold" style={{ fontSize: 13 }}>{fullName(p.patient)} · {p.patient.patientCode}</Text>
                 <Row style={{ justifyContent: "space-between" }}>
-                  <Muted style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>
-                    {p.therapist.user.name} · {p.prescribedSessions} sessions · {p.frequencyPerWeek}×/wk · {date(p.createdAt)}
+                  <Muted style={{ fontSize: 12, flex: 1 }} numberOfLines={2}>
+                    {p.therapist.user.name} · {p.prescribedSessions} sessions · {p.frequencyPerWeek}×/wk · {shortDate(p.createdAt)}
                   </Muted>
                   <Ionicons name="chevron-forward" size={16} color={colors.muted} />
                 </Row>

@@ -15,32 +15,32 @@ const SECTIONS: { title: string; items: Item[] }[] = [
   {
     title: "Front desk",
     items: [
-      { href: "/patient/new", title: "Add patient", subtitle: "Add a new patient", icon: "person-add-outline", roles: ["ADMIN", "RECEPTIONIST"] },
-      { href: "/planner", title: "Day planner", subtitle: "Plan tomorrow: book regular patients, move visits", icon: "clipboard-outline", roles: ["ADMIN", "RECEPTIONIST"] },
+      { href: "/patient/new", title: "Add patient", subtitle: "Register a new patient", icon: "person-add-outline", roles: ["ADMIN", "RECEPTIONIST"] },
+      { href: "/planner", title: "Day planner", subtitle: "Plan tomorrow's visits", icon: "clipboard-outline", roles: ["ADMIN", "RECEPTIONIST"] },
       { href: "/book", title: "Book appointment", subtitle: "New visit or walk-in", icon: "add-circle-outline", roles: ["ADMIN", "RECEPTIONIST"] },
-      { href: "/schedule", title: "Schedule", subtitle: "Day grid for all physiotherapists; block slots", icon: "grid-outline", roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST"] },
-      { href: "/home-visits", title: "Home visits", subtitle: "Visits at patients' homes; GPS check-in", icon: "home-outline", roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST"] },
+      { href: "/schedule", title: "Schedule", subtitle: "Day grid and blocked slots", icon: "grid-outline", roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST"] },
+      { href: "/home-visits", title: "Home visits", subtitle: "Visits at home, GPS check-in", icon: "home-outline", roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST"] },
     ],
   },
   {
     title: "Clinical",
     items: [
-      { href: "/treatment-plans", title: "Treatment plans", subtitle: "All plans, progress and status", icon: "clipboard-outline", roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST"] },
+      { href: "/treatment-plans", title: "Treatment plans", subtitle: "Plans, progress and status", icon: "clipboard-outline", roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST"] },
     ],
   },
   {
     title: "Finance",
     items: [
-      { href: "/billing", title: "Billing", subtitle: "Invoices, payments, new invoice", icon: "wallet-outline", roles: ["ADMIN", "RECEPTIONIST", "ACCOUNTANT"] },
-      { href: "/packages", title: "Packages", subtitle: "Package catalogue and patient packages", icon: "pricetags-outline", roles: ["ADMIN", "RECEPTIONIST", "ACCOUNTANT"] },
-      { href: "/reports", title: "Reports", subtitle: "Revenue, visits, utilisation, outstanding", icon: "bar-chart-outline", roles: ["ADMIN", "ACCOUNTANT"] },
+      { href: "/billing", title: "Billing", subtitle: "Invoices and payments", icon: "wallet-outline", roles: ["ADMIN", "RECEPTIONIST", "ACCOUNTANT"] },
+      { href: "/packages", title: "Packages", subtitle: "Catalogue and patient packages", icon: "pricetags-outline", roles: ["ADMIN", "RECEPTIONIST", "ACCOUNTANT"] },
+      { href: "/reports", title: "Reports", subtitle: "Revenue, visits and dues", icon: "bar-chart-outline", roles: ["ADMIN", "ACCOUNTANT"] },
     ],
   },
   {
     title: "Administration",
     items: [
-      { href: "/therapists", title: "Therapists", subtitle: "Physios, schedules, leave, app PINs", icon: "medkit-outline", roles: ["ADMIN", "RECEPTIONIST"] },
-      { href: "/staff", title: "Staff", subtitle: "Accounts, roles and app PINs", icon: "people-circle-outline", roles: ["ADMIN"] },
+      { href: "/therapists", title: "Therapists", subtitle: "Physios, leave and app PINs", icon: "medkit-outline", roles: ["ADMIN", "RECEPTIONIST"] },
+      { href: "/staff", title: "Staff", subtitle: "Accounts, roles and PINs", icon: "people-circle-outline", roles: ["ADMIN"] },
       { href: "/settings", title: "Settings", subtitle: "Fees, GST, slot length, hours", icon: "settings-outline", roles: ["SUPER_ADMIN"] },
     ],
   },

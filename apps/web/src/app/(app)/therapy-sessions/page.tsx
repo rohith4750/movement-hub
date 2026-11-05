@@ -94,7 +94,8 @@ function SessionModal({ session, onClose }: { session: Session; onClose: () => v
   const refresh = () => qc.invalidateQueries({ queryKey: ["sessions"] });
 
   // Any physiotherapist (or Super Admin) can run a session; if it isn't theirs they must say why.
-  const isOwner = user?.role === "SUPER_ADMIN" || user?.therapistId === session.therapist.id;
+  // Same rule as the server: only the assigned physiotherapist (matched by therapist profile) skips the reason; a Super Admin covering must give one too.
+  const isOwner = !!user?.therapistId && user.therapistId === session.therapist.id;
   const needsReason = !isOwner && !session.coverReason;
   const reasonMissing = needsReason && coverReason.trim().length < 3;
   const reason = coverReason.trim() || undefined;
