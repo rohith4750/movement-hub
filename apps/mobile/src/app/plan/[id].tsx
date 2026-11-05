@@ -227,7 +227,7 @@ export default function PlanScreen() {
             )}
           </Card>
 
-          <DailyProgressCard planId={p.id} canRecord={canManage} />
+          <DailyProgressCard therapies={p.items.map((i) => ({ id: i.id, name: i.name, category: i.category }))} planId={p.id} canRecord={canManage} />
 
           <Card>
             <H2>Sessions</H2>

@@ -221,12 +221,24 @@ export type ProgressStatus = "IMPROVED" | "SAME" | "WORSE";
 
 export const PROGRESS_STATUS_LABEL: Record<ProgressStatus, string> = { IMPROVED: "Improved", SAME: "Same", WORSE: "Worse" };
 
+/** How one therapy of the plan went on a day. */
+export interface ProgressItem {
+  itemId: string | null;
+  name: string;
+  status: ProgressStatus;
+  note: string | null;
+  /** Shown from an earlier day because nothing was recorded for it on this one. */
+  carriedForward: boolean;
+}
+
 /** One day of a plan's progress. Days without an entry carry the last recorded values forward. */
 export interface ProgressDay {
   date: string; // YYYY-MM-DD
   painScore: number | null;
   status: ProgressStatus | null;
   notes: string | null;
+  /** Per-therapy status (absent when the server is older than the app). */
+  items?: ProgressItem[];
   carriedForward: boolean;
   /** Date of the entry these values come from. */
   recordedOn: string | null;

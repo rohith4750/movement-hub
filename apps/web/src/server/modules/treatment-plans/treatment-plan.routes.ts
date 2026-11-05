@@ -1,6 +1,6 @@
 import { Router, type Request } from "../../router";
 import { z } from "zod";
-import { prisma, type Prisma } from "@movement-hub/database";
+import { Prisma, prisma } from "@movement-hub/database";
 import { created, handler, idParam, meta, ok, paginationQuery, paging, q } from "../../lib/http";
 import { audit } from "../../lib/audit";
 import { nextCode } from "../../lib/codes";
@@ -264,7 +264,18 @@ const progressBody = z.object({
   painScore: z.number().int().min(0).max(10).nullable().optional(),
   status: progressStatus.nullable().optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
+  /** How each therapy of the plan went that day. Left out = keep what is saved; [] / null = clear it. */
+  items: z
+    .array(z.object({ itemId: z.string().uuid(), status: progressStatus, note: z.string().trim().max(500).nullable().optional() }))
+    .max(40)
+    .nullable()
+    .optional(),
 });
+
+type StoredItem = { itemId?: string | null; name: string; status: z.infer<typeof progressStatus>; note?: string | null };
+/** The per-therapy list saved on a progress entry (tolerates anything unexpected in the JSON). */
+const storedItems = (v: unknown): StoredItem[] =>
+  Array.isArray(v) ? (v as StoredItem[]).filter((x) => x && typeof x.name === "string" && progressStatus.safeParse(x.status).success) : [];
 const MAX_DAYS = 120;
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -299,24 +310,38 @@ treatmentPlanRouter.get(
     let status: z.infer<typeof progressStatus> | null = null;
     let notes: string | null = null;
     let since: string | null = null;
+    // Each therapy keeps its last recorded status (and the day it was recorded) until a newer entry changes it.
+    const therapy = new Map<string, StoredItem & { on: string }>();
     for (const e of entries) {
       if (ymd(e.date) >= start) break;
       if (e.painScore != null) painScore = e.painScore;
       if (e.status) status = e.status;
       if (e.notes) notes = e.notes;
+      for (const x of storedItems(e.items)) therapy.set(x.name, { ...x, on: ymd(e.date) });
       since = ymd(e.date);
     }
 
-    const days: { date: string; painScore: number | null; status: string | null; notes: string | null; carriedForward: boolean; recordedOn: string | null; entryId: string | null }[] = [];
+    const days: {
+      date: string;
+      painScore: number | null;
+      status: string | null;
+      notes: string | null;
+      items: { itemId: string | null; name: string; status: string; note: string | null; carriedForward: boolean }[];
+      carriedForward: boolean;
+      recordedOn: string | null;
+      entryId: string | null;
+    }[] = [];
     for (let d = start; d <= end; d = addDaysYmd(d, 1)) {
       const e = byDay.get(d);
       if (e) {
         if (e.painScore != null) painScore = e.painScore;
         if (e.status) status = e.status;
         if (e.notes) notes = e.notes;
+        for (const x of storedItems(e.items)) therapy.set(x.name, { ...x, on: d });
         since = d;
       }
-      days.push({ date: d, painScore, status, notes, carriedForward: !e && since !== null, recordedOn: since, entryId: e?.id ?? null });
+      const items = [...therapy.values()].map((x) => ({ itemId: x.itemId ?? null, name: x.name, status: x.status, note: x.on === d ? x.note ?? null : null, carriedForward: x.on !== d }));
+      days.push({ date: d, painScore, status, notes, items, carriedForward: !e && since !== null, recordedOn: since, entryId: e?.id ?? null });
     }
     ok(res, { days: days.reverse(), entries: entries.length, editable: plan.status === "ACTIVE" });
   }),
@@ -333,8 +358,20 @@ treatmentPlanRouter.put(
     const day = req.params.date as string;
     if (day > todayLocal()) throw badRequest("Progress can't be recorded for a future date", "FUTURE_DATE");
     const body = req.body as z.infer<typeof progressBody>;
-    if (body.painScore == null && !body.status && !body.notes?.trim()) throw badRequest("Enter pain, status or a note", "EMPTY_PROGRESS");
-    const data = { painScore: body.painScore ?? null, status: body.status ?? null, notes: body.notes?.trim() || null, recordedById: req.user!.id };
+    if (body.painScore == null && !body.status && !body.notes?.trim() && !body.items?.length) throw badRequest("Enter pain, status, a therapy status or a note", "EMPTY_PROGRESS");
+
+    // Therapy statuses are saved with the therapy's name, so the history still reads right if the plan is edited later.
+    let items: StoredItem[] | undefined;
+    if (body.items !== undefined) {
+      const planItems = await prisma.treatmentPlanItem.findMany({ where: { treatmentPlanId: plan.id }, select: { id: true, name: true } });
+      items = (body.items ?? []).map((i) => {
+        const found = planItems.find((p) => p.id === i.itemId);
+        if (!found) throw badRequest("That therapy is not part of this plan", "UNKNOWN_THERAPY");
+        return { itemId: found.id, name: found.name, status: i.status, note: i.note?.trim() || null };
+      });
+    }
+    const itemsData = items === undefined ? {} : { items: items.length ? (items as unknown as Prisma.InputJsonValue) : Prisma.DbNull };
+    const data = { painScore: body.painScore ?? null, status: body.status ?? null, notes: body.notes?.trim() || null, recordedById: req.user!.id, ...itemsData };
     const entry = await prisma.treatmentProgress.upsert({
       where: { treatmentPlanId_date: { treatmentPlanId: plan.id, date: dateOnly(day) } },
       create: { treatmentPlanId: plan.id, date: dateOnly(day), ...data },

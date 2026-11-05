@@ -6,11 +6,12 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { QuickPlanForm } from "@/components/clinical-plan-form";
 import { DobAgeFields, RegularPhysioField, useOwnTherapistId } from "@/components/form";
 import { CategoryBadge, VisitLine } from "@/components/patient-visits";
+import { MultiDateCalendar } from "@/components/multi-date-calendar";
 import { slotStyles, SlotLegend } from "@/components/slot-legend";
 import { Badge, Button, Card, Chips, Empty, ErrorBox, Field, H2, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api, ApiError, fieldErrors } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
-import { ageFrom, clinicDay, clinicHour, date, dayParts, fullName, hhmm, label, time, today } from "@/lib/format";
+import { addDays, ageFrom, clinicDay, clinicHour, date, dayParts, fullName, hhmm, label, time, today } from "@/lib/format";
 import { useActivePlans, useAppointment, usePatient, useTherapists } from "@/lib/queries";
 import { qk } from "@/lib/query-keys";
 import { refresh, useAction } from "@/lib/refresh";
@@ -43,6 +44,8 @@ const WEEKDAYS: { value: Weekday; label: string }[] = [
 const DAY_CODES: Weekday[] = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 /** Clinic (IST) date and HH:mm for a slot start. */
 const clinicParts = (iso: string) => ({ date: clinicDay(iso), time: hhmm(iso) });
+/** Whole days from one YYYY-MM-DD to another. */
+const dayDiff = (a: string, b: string) => Math.round((new Date(`${b}T12:00:00Z`).getTime() - new Date(`${a}T12:00:00Z`).getTime()) / 86_400_000);
 const dayCode = (d: string) => DAY_CODES[new Date(`${d}T12:00:00Z`).getUTCDay()];
 
 type Preview = { items: { date: string; startAt: string; slotId: string | null; ok: boolean; reason: string | null }[]; available: number; packageRemaining: number | null };
@@ -77,7 +80,9 @@ export default function Book() {
   const [therapistChoice, setTherapistChoice] = useState<string | null>(typeof params.therapistId === "string" ? params.therapistId : null);
   const [dayChoice, setDayChoice] = useState<string | null>(typeof params.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : null);
   const [slot, setSlot] = useState<{ id: string; startAt: string; therapist: string; therapistId: string } | null>(null);
-  const [repeat, setRepeat] = useState(false);
+  // A therapy series: "weekly" repeats chosen weekdays for N weeks; "dates" lets staff tap the exact dates on a calendar.
+  const [mode, setMode] = useState<"once" | "weekly" | "dates">("once");
+  const [pickedDates, setPickedDates] = useState<string[] | null>(null);
   const [repeatDays, setRepeatDays] = useState<Weekday[] | null>(null);
   const [weeksChoice, setWeeksChoice] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
@@ -169,26 +174,41 @@ export default function Book() {
   /* ─────────── Repeat weekly (therapy sessions) ─────────── */
 
   const canRepeat = !rescheduleId && !walkIn && type === "THERAPY_SESSION" && !!planId;
-  const repeating = canRepeat && repeat && !!slot;
+  const repeating = canRepeat && mode !== "once" && !!slot;
   const slotParts = slot ? clinicParts(slot.startAt) : null;
   const days: Weekday[] = repeatDays ?? (slotParts ? [dayCode(slotParts.date)] : []);
   const defaultWeeks = plan ? Math.min(12, Math.max(1, Math.ceil(plan.prescribedSessions / Math.max(1, plan.frequencyPerWeek)))) : 4;
   const weeks = weeksChoice ?? defaultWeeks;
+
+  // Pick dates: the chosen time starts the list; staff add or remove days on the calendar (up to 12 weeks ahead).
+  const picked = (pickedDates ?? (slotParts ? [slotParts.date] : [])).slice().sort();
+  const pickMin = today();
+  const pickMax = addDays(pickMin, 83);
+  const togglePicked = (ymd: string) => setPickedDates(picked.includes(ymd) ? picked.filter((x) => x !== ymd) : [...picked, ymd]);
+  const byDates = mode === "dates";
+  // The availability check works on a weekday + weeks range. For hand-picked dates ask about every day from the first
+  // to the last chosen one (the server allows up to 12 weeks) and keep only the dates that were tapped.
+  const spanWeeks = picked.length ? Math.min(12, Math.max(1, Math.ceil((dayDiff(picked[0], picked[picked.length - 1]) + 1) / 7))) : 1;
+  const query = byDates
+    ? { from: picked[0], weekdays: WEEKDAYS.map((d) => d.value), weeks: spanWeeks }
+    : { from: slotParts?.date, weekdays: days, weeks };
   const preview = useQuery({
-    queryKey: qk.recurringPreview({ patientId, therapistId: slot?.therapistId, time: slotParts?.time, date: slotParts?.date, days: days.join(","), weeks, packageId }),
+    queryKey: qk.recurringPreview({ patientId, therapistId: slot?.therapistId, time: slotParts?.time, from: query.from, days: query.weekdays.join(","), weeks: query.weeks, packageId }),
     queryFn: () =>
       api.post<Preview>("/appointments/recurring/preview", {
         patientId,
         therapistId: slot!.therapistId,
         time: slotParts!.time,
-        from: slotParts!.date,
-        weekdays: days,
-        weeks,
+        from: query.from,
+        weekdays: query.weekdays,
+        weeks: query.weeks,
         patientPackageId: packageId || undefined,
       }),
-    enabled: repeating && days.length > 0,
+    enabled: repeating && (byDates ? picked.length > 0 : days.length > 0),
   });
-  const repeatSlotIds = (preview.data?.items ?? []).filter((i) => i.ok && i.slotId).map((i) => i.slotId!);
+  const previewItems = (preview.data?.items ?? []).filter((i) => !byDates || picked.includes(i.date));
+  const availableCount = previewItems.filter((i) => i.ok).length;
+  const repeatSlotIds = previewItems.filter((i) => i.ok && i.slotId).map((i) => i.slotId!);
   const toggleDay = (d: Weekday) => setRepeatDays(days.includes(d) ? days.filter((x) => x !== d) : [...days, d]);
 
   const book = useAction(
@@ -546,6 +566,7 @@ export default function Book() {
                                     setSlot({ id: s.slotId, startAt: s.startAt, therapist: t.therapistName, therapistId: t.therapistId });
                                     setSlotGone(null);
                                     setRepeatDays(null);
+                                    setPickedDates(null);
                                     setStep("confirm");
                                   }}
                                   accessibilityRole="button"
@@ -581,12 +602,49 @@ export default function Book() {
           <KeyValue k="Physio" v={slot?.therapist ?? "—"} />
           {canRepeat && slot ? (
             <View style={{ gap: space.sm }}>
-              <Chips<"once" | "weekly">
-                value={repeat ? "weekly" : "once"}
-                onChange={(v) => setRepeat(v === "weekly")}
-                options={[{ value: "once", label: "Just this session" }, { value: "weekly", label: "Repeat weekly" }]}
+              <Chips<"once" | "weekly" | "dates">
+                value={mode}
+                onChange={setMode}
+                options={[
+                  { value: "once", label: "One session" },
+                  { value: "weekly", label: "Repeat weekly" },
+                  { value: "dates", label: "Pick dates" },
+                ]}
               />
-              {repeat ? (
+              {byDates ? (
+                <>
+                  <Field label={`Tap the dates you want · ${picked.length} selected`}>
+                    <MultiDateCalendar selected={picked} onToggle={togglePicked} min={pickMin} max={pickMax} />
+                  </Field>
+                  <Muted style={{ fontSize: 12 }}>Same time ({time(slot.startAt)}) with {slot.therapist} on every date. Tap a date again to remove it.</Muted>
+                  {!picked.length ? (
+                    <Muted style={{ fontSize: 12, color: colors.warning }}>Pick at least one date.</Muted>
+                  ) : preview.isLoading ? (
+                    <Loading label="Checking dates…" />
+                  ) : preview.error ? (
+                    <ErrorBox error={preview.error} onRetry={() => preview.refetch()} />
+                  ) : preview.data ? (
+                    <View style={{ gap: 4 }}>
+                      {previewItems.map((i) => (
+                        <Row key={i.date} style={{ justifyContent: "space-between" }}>
+                          <Text style={{ color: i.ok ? colors.navy700 : colors.muted }}>{date(i.startAt)}, {time(i.startAt)}</Text>
+                          {i.ok ? (
+                            <Text weight="bold" style={{ color: colors.success }}>✓</Text>
+                          ) : (
+                            <Muted style={{ fontSize: 12, color: colors.warning, flexShrink: 1, textAlign: "right", marginLeft: space.sm }}>{i.reason}</Muted>
+                          )}
+                        </Row>
+                      ))}
+                      <Muted style={{ fontSize: 12 }}>{availableCount} of {previewItems.length} dates are free. Only the free ones will be booked.</Muted>
+                      {preview.data.packageRemaining !== null && availableCount > preview.data.packageRemaining ? (
+                        <Muted style={{ fontSize: 12, color: colors.warning }}>
+                          The package has only {preview.data.packageRemaining} session{preview.data.packageRemaining === 1 ? "" : "s"} left — sessions beyond that will need to be paid per visit.
+                        </Muted>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </>
+              ) : mode === "weekly" ? (
                 <>
                   <Field label="On these days">
                     <View style={styles.multi}>

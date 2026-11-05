@@ -686,6 +686,8 @@ model TreatmentProgress {
   painScore       Int?            // 0–10
   status          ProgressStatus?
   notes           String?
+  /// How each therapy of the plan went that day: [{ itemId, name, status: IMPROVED|SAME|WORSE, note }].
+  items           Json?
   recordedById    String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt

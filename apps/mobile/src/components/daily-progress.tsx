@@ -4,7 +4,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Pressable } from "react-native";
+import { Pressable, View } from "react-native";
 import { Sheet } from "@/components/form";
 import { Badge, Button, Card, Chips, ErrorBox, Field, H2, Input, Loading, Muted, Row, Text } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -27,13 +27,24 @@ const shortDay = (d: string) => {
 };
 const STATUS_BADGE: Record<ProgressStatus, string> = { IMPROVED: "COMPLETED", SAME: "SCHEDULED", WORSE: "CANCELLED" };
 
-export function DailyProgressCard({ planId, canRecord }: { planId: string; canRecord: boolean }) {
+/** A therapy of the plan: it gets its own status each day. */
+export interface PlanTherapy {
+  id: string;
+  name: string;
+  category: string;
+}
+
+type ItemInput = { status: StatusChoice; note: string };
+
+export function DailyProgressCard({ planId, canRecord, therapies = [] }: { planId: string; canRecord: boolean; therapies?: PlanTherapy[] }) {
   const q = useQuery({ queryKey: qk.progressLog(planId), queryFn: () => api.get<ProgressLog>(`/treatment-plans/${planId}/progress-log`) });
   const [showAll, setShowAll] = useState(false);
   const [editDay, setEditDay] = useState<string | null>(null);
   const [pain, setPain] = useState("");
   const [status, setStatus] = useState<StatusChoice>("NONE");
   const [notes, setNotes] = useState("");
+  // Status (and an optional note) for each therapy of the plan, keyed by the therapy's id.
+  const [itemInputs, setItemInputs] = useState<Record<string, ItemInput>>({});
 
   const log = q.data;
   const recordable = canRecord && !!log?.editable;
@@ -45,17 +56,27 @@ export function DailyProgressCard({ planId, canRecord }: { planId: string; canRe
     setStatus(day?.status ?? "NONE");
     // Notes describe one day: only pre-fill them when that day has its own entry.
     setNotes(day && !day.carriedForward && day.date === day.recordedOn ? day.notes ?? "" : "");
+    // Each therapy starts from its latest status (so only what changed needs touching); a note only belongs to its own day.
+    const next: Record<string, ItemInput> = {};
+    for (const t of therapies) {
+      const found = (day?.items ?? []).find((i) => i.itemId === t.id) ?? (day?.items ?? []).find((i) => i.name === t.name);
+      next[t.id] = { status: found?.status ?? "NONE", note: found && !found.carriedForward ? found.note ?? "" : "" };
+    }
+    setItemInputs(next);
     setEditDay(date);
   };
 
   const painOk = pain === "" || Number(pain) <= 10;
-  const empty = pain === "" && status === "NONE" && !notes.trim();
+  const chosen = therapies.filter((t) => (itemInputs[t.id]?.status ?? "NONE") !== "NONE");
+  const empty = pain === "" && status === "NONE" && !notes.trim() && chosen.length === 0;
   const save = useAction(
     () =>
       api.put(`/treatment-plans/${planId}/progress-log/${editDay}`, {
         painScore: pain === "" ? null : Number(pain),
         status: status === "NONE" ? null : status,
         notes: notes.trim() || null,
+        // Only plans with therapies send this; a server that doesn't know it yet simply ignores it.
+        ...(therapies.length ? { items: chosen.map((t) => ({ itemId: t.id, status: itemInputs[t.id].status as ProgressStatus, note: itemInputs[t.id].note.trim() || null })) } : {}),
       }),
     { refresh: ["clinical"], onSuccess: () => setEditDay(null) },
   );
@@ -84,7 +105,7 @@ export function DailyProgressCard({ planId, canRecord }: { planId: string; canRe
       ) : (
         <>
           {shown.map((d) => {
-            const nothing = d.painScore == null && !d.status && !d.notes;
+            const nothing = d.painScore == null && !d.status && !d.notes && !(d.items && d.items.length);
             return (
               <Pressable
                 key={d.date}
@@ -102,6 +123,16 @@ export function DailyProgressCard({ planId, canRecord }: { planId: string; canRe
                   </Row>
                 </Row>
                 {d.notes ? <Muted numberOfLines={2}>{d.notes}</Muted> : null}
+                {d.items && d.items.length ? (
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                    {d.items.map((i) => (
+                      <View key={i.name} style={{ opacity: i.carriedForward ? 0.6 : 1 }}>
+                        <Badge status={STATUS_BADGE[i.status]} text={`${i.name}: ${PROGRESS_STATUS_LABEL[i.status]}`} />
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+                {d.items && d.items.some((i) => i.note) ? <Muted style={{ fontSize: 12 }} numberOfLines={2}>{d.items.filter((i) => i.note).map((i) => `${i.name}: ${i.note}`).join(" · ")}</Muted> : null}
                 {nothing ? (
                   <Muted style={{ fontSize: 12 }}>No entry</Muted>
                 ) : d.carriedForward && d.recordedOn ? (
@@ -138,6 +169,32 @@ export function DailyProgressCard({ planId, canRecord }: { planId: string; canRe
             ]}
           />
         </Field>
+        {therapies.length ? (
+          <View style={{ gap: 10 }}>
+            <Text weight="semibold" style={{ color: colors.navy700 }}>Therapies in this plan</Text>
+            {therapies.map((t) => {
+              const input = itemInputs[t.id] ?? { status: "NONE" as StatusChoice, note: "" };
+              return (
+                <View key={t.id} style={{ gap: 6 }}>
+                  <Text weight="semibold" style={{ fontSize: 13 }}>{t.name} <Text style={{ fontSize: 12, color: colors.muted }}>· {t.category}</Text></Text>
+                  <Chips<StatusChoice>
+                    value={input.status}
+                    onChange={(v) => setItemInputs((m) => ({ ...m, [t.id]: { ...input, status: v } }))}
+                    options={[
+                      { value: "IMPROVED", label: "Improved" },
+                      { value: "SAME", label: "Same" },
+                      { value: "WORSE", label: "Worse" },
+                      { value: "NONE", label: "Not set" },
+                    ]}
+                  />
+                  {input.status !== "NONE" ? (
+                    <Input value={input.note} onChangeText={(v) => setItemInputs((m) => ({ ...m, [t.id]: { ...input, note: v } }))} maxLength={500} placeholder={`Note for ${t.name} (optional)`} />
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
         <Field label="Notes">
           <Input value={notes} onChangeText={setNotes} multiline maxLength={2000} placeholder="How the patient is doing today" />
         </Field>
