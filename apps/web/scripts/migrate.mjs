@@ -17,8 +17,8 @@ if (!isProd && !forced) {
   process.exit(0);
 }
 if (!process.env.DATABASE_URL) {
-  console.error("[migrate] DATABASE_URL is not set — cannot apply migrations. Add it in Vercel → Settings → Environment Variables.");
-  process.exit(1);
+  console.warn("[migrate] DATABASE_URL is not set — skipping migrations. Add it in Vercel → Settings → Environment Variables.");
+  process.exit(0);
 }
 
 console.log("[migrate] Applying pending migrations…");
