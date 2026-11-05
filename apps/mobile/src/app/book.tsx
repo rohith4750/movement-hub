@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
@@ -83,6 +83,8 @@ export default function Book() {
   // A therapy series: "weekly" repeats chosen weekdays for N weeks; "dates" lets staff tap the exact dates on a calendar.
   const [mode, setMode] = useState<"once" | "weekly" | "dates">("once");
   const [pickedDates, setPickedDates] = useState<string[] | null>(null);
+  // The time chosen for each picked date (date -> slot id). A date without one uses the same time as the first session.
+  const [timePick, setTimePick] = useState<Record<string, string>>({});
   const [repeatDays, setRepeatDays] = useState<Weekday[] | null>(null);
   const [weeksChoice, setWeeksChoice] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
@@ -207,8 +209,25 @@ export default function Book() {
     enabled: repeating && (byDates ? picked.length > 0 : days.length > 0),
   });
   const previewItems = (preview.data?.items ?? []).filter((i) => !byDates || picked.includes(i.date));
-  const availableCount = previewItems.filter((i) => i.ok).length;
-  const repeatSlotIds = previewItems.filter((i) => i.ok && i.slotId).map((i) => i.slotId!);
+
+  // Pick dates also shows each date's free times for the chosen physio, so a date can have its own time.
+  // They are asked for after the check above, because that check creates the physio's slots for far-away dates.
+  const timeQueries = useQueries({
+    queries: picked.map((d) => ({
+      queryKey: qk.availability({ day: d, type, therapistId: slot?.therapistId ?? "", walkIn: false }),
+      queryFn: () => api.get<AvailabilityRow[]>("/availability", { date: d, type, therapistId: slot!.therapistId }),
+      enabled: repeating && byDates && !!slot && preview.isSuccess,
+    })),
+  });
+  const datePlans = picked.map((d, i) => {
+    const free = timeQueries[i]?.data?.find((r) => r.therapistId === slot?.therapistId)?.slots ?? [];
+    const same = preview.data?.items.find((x) => x.date === d);
+    const want = timePick[d];
+    const slotId = want && free.some((f) => f.slotId === want) ? want : same?.ok && same.slotId ? same.slotId : null;
+    return { date: d, free, slotId, loading: (!timeQueries[i]?.data && !timeQueries[i]?.isError) || preview.isFetching };
+  });
+  const repeatSlotIds = byDates ? datePlans.map((p) => p.slotId).filter((x): x is string => !!x) : previewItems.filter((i) => i.ok && i.slotId).map((i) => i.slotId!);
+  const availableCount = byDates ? repeatSlotIds.length : previewItems.filter((i) => i.ok).length;
   const toggleDay = (d: Weekday) => setRepeatDays(days.includes(d) ? days.filter((x) => x !== d) : [...days, d]);
 
   const book = useAction(
@@ -567,6 +586,7 @@ export default function Book() {
                                     setSlotGone(null);
                                     setRepeatDays(null);
                                     setPickedDates(null);
+                                    setTimePick({});
                                     setStep("confirm");
                                   }}
                                   accessibilityRole="button"
@@ -616,33 +636,56 @@ export default function Book() {
                   <Field label={`Tap the dates you want · ${picked.length} selected`}>
                     <MultiDateCalendar selected={picked} onToggle={togglePicked} min={pickMin} max={pickMax} />
                   </Field>
-                  <Muted style={{ fontSize: 12 }}>Same time ({time(slot.startAt)}) with {slot.therapist} on every date. Tap a date again to remove it.</Muted>
+                  <Muted style={{ fontSize: 12 }}>Each date starts at {time(slot.startAt)} with {slot.therapist}. Tap another time to change it for that date, or tap the date on the calendar again to remove it.</Muted>
                   {!picked.length ? (
                     <Muted style={{ fontSize: 12, color: colors.warning }}>Pick at least one date.</Muted>
-                  ) : preview.isLoading ? (
-                    <Loading label="Checking dates…" />
                   ) : preview.error ? (
                     <ErrorBox error={preview.error} onRetry={() => preview.refetch()} />
-                  ) : preview.data ? (
-                    <View style={{ gap: 4 }}>
-                      {previewItems.map((i) => (
-                        <Row key={i.date} style={{ justifyContent: "space-between" }}>
-                          <Text style={{ color: i.ok ? colors.navy700 : colors.muted }}>{date(i.startAt)}, {time(i.startAt)}</Text>
-                          {i.ok ? (
-                            <Text weight="bold" style={{ color: colors.success }}>✓</Text>
+                  ) : (
+                    <View style={{ gap: space.md }}>
+                      {datePlans.map((p) => (
+                        <View key={p.date} style={{ gap: 6 }}>
+                          <Row style={{ justifyContent: "space-between" }}>
+                            <Text weight="semibold" style={{ color: colors.navy700 }}>{dayParts(p.date).weekday}, {date(`${p.date}T06:00:00Z`)}</Text>
+                            {p.slotId ? (
+                              <Text weight="bold" style={{ color: colors.success }}>✓ {time(p.free.find((f) => f.slotId === p.slotId)?.startAt ?? preview.data?.items.find((x) => x.slotId === p.slotId)?.startAt)}</Text>
+                            ) : p.loading ? null : (
+                              <Muted style={{ fontSize: 12, color: colors.warning }}>Pick a time</Muted>
+                            )}
+                          </Row>
+                          {p.loading && !p.free.length ? (
+                            <Muted style={{ fontSize: 12 }}>Loading times…</Muted>
+                          ) : !p.free.length ? (
+                            <Muted style={{ fontSize: 12, color: colors.warning }}>{slot.therapist} has no free times this day.</Muted>
                           ) : (
-                            <Muted style={{ fontSize: 12, color: colors.warning, flexShrink: 1, textAlign: "right", marginLeft: space.sm }}>{i.reason}</Muted>
+                            <View style={styles.slots}>
+                              {p.free.map((f) => {
+                                const on = p.slotId === f.slotId;
+                                return (
+                                  <Pressable
+                                    key={f.slotId}
+                                    onPress={() => setTimePick((m) => ({ ...m, [p.date]: f.slotId }))}
+                                    accessibilityRole="button"
+                                    accessibilityState={{ selected: on }}
+                                    accessibilityLabel={`${time(f.startAt)} on ${p.date}`}
+                                    style={[styles.slot, slotStyles.free, on && slotStyles.selected]}
+                                  >
+                                    <Text weight="semibold" style={{ fontSize: 13, color: on ? colors.white : colors.navy700 }}>{time(f.startAt)}</Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
                           )}
-                        </Row>
+                        </View>
                       ))}
-                      <Muted style={{ fontSize: 12 }}>{availableCount} of {previewItems.length} dates are free. Only the free ones will be booked.</Muted>
-                      {preview.data.packageRemaining !== null && availableCount > preview.data.packageRemaining ? (
+                      <Muted style={{ fontSize: 12 }}>{availableCount} of {picked.length} dates have a time. Only those will be booked.</Muted>
+                      {preview.data && preview.data.packageRemaining !== null && availableCount > preview.data.packageRemaining ? (
                         <Muted style={{ fontSize: 12, color: colors.warning }}>
                           The package has only {preview.data.packageRemaining} session{preview.data.packageRemaining === 1 ? "" : "s"} left — sessions beyond that will need to be paid per visit.
                         </Muted>
                       ) : null}
                     </View>
-                  ) : null}
+                  )}
                 </>
               ) : mode === "weekly" ? (
                 <>
