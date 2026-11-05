@@ -50,6 +50,13 @@ interface NextUpItem {
   queueNo: number;
 }
 
+interface SlotItem {
+  id: string;
+  time: string;
+  status: "AVAILABLE" | "BOOKED" | "BLOCKED";
+  isPast: boolean;
+}
+
 interface TherapistItem {
   id: string;
   name: string;
@@ -65,7 +72,11 @@ interface TherapistItem {
     endsAt: string;
   } | null;
   nextAppointmentTime: string | null;
+  totalSlotsCount?: number;
   freeSlotsCount: number;
+  bookedSlotsCount?: number;
+  blockedSlotsCount?: number;
+  allSlots?: SlotItem[];
   freeSlots: string[];
 }
 
@@ -75,6 +86,8 @@ interface SummaryData {
   inSessionCount: number;
   onLeaveCount: number;
   totalFreeSlots: number;
+  totalBookedSlots?: number;
+  totalBlockedSlots?: number;
 }
 
 interface SlideItem {
@@ -538,37 +551,90 @@ export default function TvWaitingBoardPage() {
                     )}
                   </div>
 
-                  {/* Free Slots Grid */}
+                  {/* All Slots Grid (Available, Booked, Blocked) */}
                   <div className="mt-4 flex-1 flex flex-col justify-end">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
                         <Clock size={14} className="text-amber-400" />
-                        Available Slots Today:
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                          Today&apos;s Slots:
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] font-mono">
+                        <span className="text-emerald-400 font-bold">{physio.freeSlotsCount} Available</span>
+                        {physio.bookedSlotsCount ? (
+                          <span className="text-blue-400 font-medium">· {physio.bookedSlotsCount} Booked</span>
+                        ) : null}
+                        {physio.blockedSlotsCount ? (
+                          <span className="text-slate-400 font-medium">· {physio.blockedSlotsCount} Blocked</span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Mini Legend */}
+                    <div className="flex items-center gap-3 mb-2 text-[10px] text-slate-400 font-medium">
+                      <span className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                        Available
                       </span>
-                      <span className={clsx("text-xs font-bold font-mono", physio.freeSlotsCount > 0 ? "text-emerald-400" : "text-slate-500")}>
-                        {physio.freeSlotsCount} Free
+                      <span className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-blue-500" />
+                        Booked
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-slate-500" />
+                        Blocked / Break
                       </span>
                     </div>
 
-                    {physio.freeSlots && physio.freeSlots.length > 0 ? (
-                      <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto pr-1">
-                        {physio.freeSlots.slice(0, 8).map((slotTime) => (
-                          <span
-                            key={slotTime}
-                            className="rounded-lg bg-emerald-950/70 border border-emerald-500/40 px-2.5 py-1 font-mono text-xs font-bold text-emerald-200 hover:border-emerald-400 transition"
-                          >
-                            {slotTime}
-                          </span>
-                        ))}
-                        {physio.freeSlots.length > 8 ? (
-                          <span className="rounded-lg bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-300">
-                            +{physio.freeSlots.length - 8} more
-                          </span>
-                        ) : null}
+                    {/* Full Slot Grid — Showing ALL slots without truncation */}
+                    {physio.allSlots && physio.allSlots.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto pr-1">
+                        {physio.allSlots.map((slot) => {
+                          if (slot.status === "AVAILABLE") {
+                            return (
+                              <span
+                                key={slot.id}
+                                title="Available for booking / walk-in"
+                                className={clsx(
+                                  "rounded-md px-2 py-1 font-mono text-xs font-bold transition border flex items-center gap-1.5",
+                                  slot.isPast
+                                    ? "bg-slate-900/60 border-slate-800 text-slate-500 opacity-60"
+                                    : "bg-emerald-950/90 border-emerald-500/70 text-emerald-200 shadow-sm"
+                                )}
+                              >
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                {slot.time}
+                              </span>
+                            );
+                          }
+                          if (slot.status === "BOOKED") {
+                            return (
+                              <span
+                                key={slot.id}
+                                title="Booked appointment"
+                                className="rounded-md px-2 py-1 font-mono text-xs font-medium border bg-blue-950/40 border-blue-600/40 text-blue-300/80 flex items-center gap-1.5 line-through decoration-blue-400/50"
+                              >
+                                <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+                                {slot.time}
+                              </span>
+                            );
+                          }
+                          return (
+                            <span
+                              key={slot.id}
+                              title="Blocked / Break"
+                              className="rounded-md px-2 py-1 font-mono text-xs font-medium border bg-slate-900/90 border-slate-800 text-slate-500 flex items-center gap-1.5 line-through"
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full bg-slate-600" />
+                              {slot.time}
+                            </span>
+                          );
+                        })}
                       </div>
                     ) : (
                       <div className="rounded-lg border border-dashed border-slate-800 bg-slate-900/50 p-3 text-center text-xs text-slate-500">
-                        {physio.isOnLeave ? "On leave today" : "No remaining free slots today · Inquire at desk"}
+                        {physio.isOnLeave ? "On leave today" : "No slots configured for today"}
                       </div>
                     )}
                   </div>
@@ -644,20 +710,62 @@ export default function TvWaitingBoardPage() {
                       )}
                     </div>
 
-                    {/* Free Slots Pills */}
-                    <div className="mt-3 flex items-center gap-2 flex-wrap">
-                      <span className="text-[11px] font-semibold text-slate-400">Free slots:</span>
-                      {physio.freeSlots && physio.freeSlots.length > 0 ? (
-                        physio.freeSlots.slice(0, 5).map((t) => (
-                          <span
-                            key={t}
-                            className="rounded bg-emerald-950/80 border border-emerald-500/30 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-200"
-                          >
-                            {t}
-                          </span>
-                        ))
+                    {/* All Slots Pills */}
+                    <div className="mt-3 flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-semibold text-slate-400">Slots today:</span>
+                        <div className="flex items-center gap-2 font-mono text-[10px]">
+                          <span className="text-emerald-400 font-bold">{physio.freeSlotsCount} Free</span>
+                          {physio.bookedSlotsCount ? (
+                            <span className="text-blue-400">· {physio.bookedSlotsCount} Booked</span>
+                          ) : null}
+                          {physio.blockedSlotsCount ? (
+                            <span className="text-slate-400">· {physio.blockedSlotsCount} Blocked</span>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {physio.allSlots && physio.allSlots.length > 0 ? (
+                        <div className="flex items-center gap-1.5 flex-wrap max-h-24 overflow-y-auto">
+                          {physio.allSlots.map((s) => {
+                            if (s.status === "AVAILABLE") {
+                              return (
+                                <span
+                                  key={s.id}
+                                  className={clsx(
+                                    "rounded px-2 py-0.5 font-mono text-[11px] font-bold border flex items-center gap-1",
+                                    s.isPast
+                                      ? "bg-slate-900/60 border-slate-800 text-slate-500 opacity-60"
+                                      : "bg-emerald-950/80 border-emerald-500/50 text-emerald-200"
+                                  )}
+                                >
+                                  <span className="h-1 w-1 rounded-full bg-emerald-400" />
+                                  {s.time}
+                                </span>
+                              );
+                            }
+                            if (s.status === "BOOKED") {
+                              return (
+                                <span
+                                  key={s.id}
+                                  className="rounded px-2 py-0.5 font-mono text-[11px] font-medium border bg-blue-950/40 border-blue-600/30 text-blue-300/70 line-through"
+                                >
+                                  {s.time}
+                                </span>
+                              );
+                            }
+                            return (
+                              <span
+                                key={s.id}
+                                className="rounded px-2 py-0.5 font-mono text-[11px] font-medium border bg-slate-900 border-slate-800 text-slate-500 line-through"
+                              >
+                                {s.time}
+                              </span>
+                            );
+                          })}
+                        </div>
                       ) : (
-                        <span className="text-[11px] text-slate-500 italic">No free slots left today</span>
+                        <span className="text-[11px] text-slate-500 italic">No slots scheduled</span>
                       )}
                     </div>
                   </div>

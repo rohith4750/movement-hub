@@ -34,7 +34,7 @@ tvRouter.get("/board", async (req, res, next) => {
     const range = dayRange(today);
     const now = new Date();
 
-    // 1. Fetch active therapists with specializations, leave, and slots
+    // 1. Fetch active therapists with specializations, leave, and ALL slots for today
     const therapists = await prisma.therapist.findMany({
       where: { branchId: branch.id, isActive: true },
       include: {
@@ -50,7 +50,6 @@ tvRouter.get("/board", async (req, res, next) => {
         slots: {
           where: {
             startAt: { gte: range.gte, lt: range.lt },
-            status: "AVAILABLE",
           },
           orderBy: { startAt: "asc" },
         },
@@ -66,7 +65,6 @@ tvRouter.get("/board", async (req, res, next) => {
       const refreshedSlots = await prisma.therapistSlot.findMany({
         where: {
           startAt: { gte: range.gte, lt: range.lt },
-          status: "AVAILABLE",
           therapistId: { in: therapists.map((t) => t.id) },
         },
         orderBy: { startAt: "asc" },
@@ -106,20 +104,23 @@ tvRouter.get("/board", async (req, res, next) => {
       sessionNumber: a.therapySession?.sessionNumber ?? null,
     }));
 
-    // ── THERAPIST AVAILABILITY & FREE SLOTS ──
+    // ── THERAPIST AVAILABILITY & ALL SLOTS (AVAILABLE, BOOKED, BLOCKED) ──
     const physioStatusList = therapists.map((t) => {
       const isOnLeave = t.leaves.length > 0;
       const currentAppt = inProgress.find((a) => a.therapist.id === t.id);
       const isFreeNow = !isOnLeave && !currentAppt;
 
-      // Free slots for today that are still in the future or ongoing
-      const upcomingFreeSlots = t.slots
-        .filter((s) => s.endAt > now)
-        .map((s) => ({
-          id: s.id,
-          time: localTimeString(s.startAt),
-          startAt: s.startAt.toISOString(),
-        }));
+      // Map all slots for today with explicit status & whether they've already passed
+      const allSlots = t.slots.map((s) => ({
+        id: s.id,
+        time: localTimeString(s.startAt),
+        status: s.status as "AVAILABLE" | "BOOKED" | "BLOCKED",
+        isPast: s.endAt < now,
+      }));
+
+      const availableCount = allSlots.filter((s) => s.status === "AVAILABLE" && !s.isPast).length;
+      const bookedCount = allSlots.filter((s) => s.status === "BOOKED").length;
+      const blockedCount = allSlots.filter((s) => s.status === "BLOCKED").length;
 
       // Next scheduled appointment
       const nextAppt = appointments.find(
@@ -145,8 +146,12 @@ tvRouter.get("/board", async (req, res, next) => {
             }
           : null,
         nextAppointmentTime: nextAppt ? localTimeString(nextAppt.startAt) : null,
-        freeSlotsCount: upcomingFreeSlots.length,
-        freeSlots: upcomingFreeSlots.map((s) => s.time),
+        totalSlotsCount: allSlots.length,
+        freeSlotsCount: availableCount,
+        bookedSlotsCount: bookedCount,
+        blockedSlotsCount: blockedCount,
+        allSlots,
+        freeSlots: allSlots.filter((s) => s.status === "AVAILABLE" && !s.isPast).map((s) => s.time),
       };
     });
 
@@ -156,6 +161,8 @@ tvRouter.get("/board", async (req, res, next) => {
       inSessionCount: physioStatusList.filter((p) => !p.isFreeNow && !p.isOnLeave).length,
       onLeaveCount: physioStatusList.filter((p) => p.isOnLeave).length,
       totalFreeSlots: physioStatusList.reduce((acc, p) => acc + p.freeSlotsCount, 0),
+      totalBookedSlots: physioStatusList.reduce((acc, p) => acc + p.bookedSlotsCount, 0),
+      totalBlockedSlots: physioStatusList.reduce((acc, p) => acc + p.blockedSlotsCount, 0),
     };
 
     // ── NEXT UP (CHECKED_IN first, then SCHEDULED/CONFIRMED) ──
