@@ -8,32 +8,51 @@ import { Button, Card, ErrorBox, Field, H2, Input, Loading, Muted, ProgressBar, 
 import { api } from "@/lib/api";
 import { inr, today } from "@/lib/format";
 import { qk } from "@/lib/query-keys";
+import type { MedicalHistoryEntry } from "@/lib/types";
 import { useAction } from "@/lib/refresh";
 import { colors, radius, space } from "@/theme";
 
 /* ───────────── Medical history ───────────── */
 
-export function MedicalHistorySheet({ patientId, open, onClose }: { patientId: string; open: boolean; onClose: () => void }) {
-  const [f, setF] = useState({ condition: "", details: "", diagnosedOn: "", medications: "", surgeries: "", allergies: "" });
-  const [ongoing, setOngoing] = useState(true);
+/**
+ * Add a medical-history entry, or edit one when `entry` is given. The parent keys the sheet by the entry,
+ * so it starts with that entry's values each time it opens.
+ */
+export function MedicalHistorySheet({ patientId, open, onClose, entry }: { patientId: string; open: boolean; onClose: () => void; entry?: MedicalHistoryEntry | null }) {
+  const [f, setF] = useState({
+    condition: entry ? entry.condition : "",
+    details: entry && entry.details ? entry.details : "",
+    diagnosedOn: entry && entry.diagnosedOn ? entry.diagnosedOn.slice(0, 10) : "",
+    medications: entry && entry.medications ? entry.medications : "",
+    surgeries: entry && entry.surgeries ? entry.surgeries : "",
+    allergies: entry && entry.allergies ? entry.allergies : "",
+  });
+  const [ongoing, setOngoing] = useState(entry ? entry.isOngoing : true);
   const set = (k: keyof typeof f) => (t: string) => setF((x) => ({ ...x, [k]: t }));
+  const editing = !!entry;
 
   const save = useAction(
-    () =>
-      api.post(`/patients/${patientId}/medical-history`, {
+    () => {
+      // When editing, blanks are sent as empty text so a field can be cleared; when adding they are left out.
+      const text = (v: string) => (editing ? v.trim() : v.trim() || undefined);
+      const body = {
         condition: f.condition.trim(),
-        details: f.details.trim() || undefined,
+        details: text(f.details),
         diagnosedOn: f.diagnosedOn || undefined,
-        medications: f.medications.trim() || undefined,
-        surgeries: f.surgeries.trim() || undefined,
-        allergies: f.allergies.trim() || undefined,
+        medications: text(f.medications),
+        surgeries: text(f.surgeries),
+        allergies: text(f.allergies),
         isOngoing: ongoing,
-      }),
+      };
+      return entry ? api.patch(`/patients/${patientId}/medical-history/${entry.id}`, body) : api.post(`/patients/${patientId}/medical-history`, body);
+    },
     {
       refresh: ["patients"],
       onSuccess: () => {
-        setF({ condition: "", details: "", diagnosedOn: "", medications: "", surgeries: "", allergies: "" });
-        setOngoing(true);
+        if (!editing) {
+          setF({ condition: "", details: "", diagnosedOn: "", medications: "", surgeries: "", allergies: "" });
+          setOngoing(true);
+        }
         onClose();
       },
     },
@@ -45,7 +64,7 @@ export function MedicalHistorySheet({ patientId, open, onClose }: { patientId: s
     <Sheet
       open={open}
       onClose={onClose}
-      title="Add medical history"
+      title={editing ? "Edit medical history" : "Add medical history"}
       footer={<Button title="Save" icon="save-outline" onPress={() => save.mutate()} disabled={!ok} loading={save.isPending} />}
     >
       <Field label="Condition *"><Input value={f.condition} onChangeText={set("condition")} placeholder="e.g. Type 2 diabetes" /></Field>

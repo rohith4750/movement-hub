@@ -20,6 +20,7 @@ import type {
   Therapist,
   TherapySession,
   TreatmentPlan,
+  TreatmentPrice,
 } from "./types";
 
 /**
@@ -135,6 +136,11 @@ export function useInvoices(status?: string) {
     queryFn: () => api.page<Invoice>("/invoices", { status, limit: 50 }),
     select: (r) => r.data,
   });
+}
+
+/** The clinic's price per treatment category, used when billing. Rarely changes. */
+export function useTreatmentPrices(enabled = true) {
+  return useQuery({ queryKey: qk.treatmentPrices(), queryFn: () => api.get<TreatmentPrice[]>("/settings/treatment-prices"), enabled, staleTime: 10 * 60_000 });
 }
 
 export function useMonthlyReport(months = 6, enabled = true) {

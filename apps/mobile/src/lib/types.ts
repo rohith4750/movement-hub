@@ -78,7 +78,7 @@ export interface PatientDetail {
   primaryTherapistId?: string | null;
   primaryTherapist?: { id: string; colorTag: string | null; user: { name: string } } | null;
   addresses: { id: string; label: string; line1: string; city: string; pincode: string; isDefault: boolean }[];
-  medicalHistory: { id: string; condition: string; details: string | null; isOngoing: boolean; medications: string | null; allergies: string | null }[];
+  medicalHistory: MedicalHistoryEntry[];
   packages: { id: string; status: string; remainingSessions: number; totalSessions: number; expiryDate: string; package: { name: string } }[];
   treatmentPlans: { id: string; title: string; status: string; prescribedSessions: number; createdAt: string }[];
   appointments: { id: string; appointmentNo: string; type: string; status: string; startAt: string; therapist: { user: { name: string } } }[];
@@ -368,6 +368,26 @@ export interface ActivePlanConflict {
 }
 
 /* ─────────────── Reports ─────────────── */
+
+/** What the clinic charges for one treatment of a category (billing by treatment). */
+export interface TreatmentPrice {
+  id: string;
+  category: string;
+  price: string;
+  isActive: boolean;
+  sortOrder: number;
+}
+
+export interface MedicalHistoryEntry {
+  id: string;
+  condition: string;
+  details: string | null;
+  diagnosedOn: string | null;
+  medications: string | null;
+  surgeries: string | null;
+  allergies: string | null;
+  isOngoing: boolean;
+}
 
 export interface MonthlyRow {
   month: string; // YYYY-MM

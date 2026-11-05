@@ -14,7 +14,7 @@ import { useTherapists } from "@/lib/queries";
 import { useAction } from "@/lib/refresh";
 import { colors, radius, space } from "@/theme";
 
-export const PLAN_CATEGORIES = ["Exercise Therapy", "Manual Therapy", "Electrotherapy", "Taping", "Dry Needling", "Hot/Cold Therapy", "Traction", "Education"];
+export const PLAN_CATEGORIES = ["Exercise Therapy", "Manual Therapy", "Myofascial Release", "Mobility", "Strength & Conditioning", "Electrotherapy", "Taping", "Dry Needling", "Hot/Cold Therapy", "Traction", "Education"];
 
 export interface PlanItemDraft {
   /** Set for treatments that already exist on a saved plan (used when editing). */

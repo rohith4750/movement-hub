@@ -3,14 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { goBack, RequireRole, SectionTitle, SelectField, type Option } from "@/components/form";
-import { Button, Card, Divider, ErrorBox, Field, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
+import { goBack, RequireRole, SectionTitle, SelectField, Sheet, type Option } from "@/components/form";
+import { Badge, Button, Card, Divider, ErrorBox, Field, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fullName, inr } from "@/lib/format";
 import { qk } from "@/lib/query-keys";
 import { useAction } from "@/lib/refresh";
 import { useAuth } from "@/lib/auth";
-import { useTherapists } from "@/lib/queries";
+import { useActivePlans, useTherapists, useTreatmentPrices } from "@/lib/queries";
 import { colors, radius, space } from "@/theme";
 
 type ItemType = "CONSULTATION" | "THERAPY_SESSION" | "PACKAGE" | "HOME_VISIT" | "TRAVEL_CHARGE" | "OTHER";
@@ -80,6 +80,15 @@ function NewInvoiceForm() {
   const [billFor, setBillFor] = useState("");
   const therapists = useTherapists({ enabled: !isPhysio });
 
+  // Billing by treatment: the clinic's price list, and the priced treatments in this patient's active plan.
+  const prices = useTreatmentPrices();
+  const plans = useActivePlans(patient ? patient.id : undefined);
+  const [picking, setPicking] = useState(false);
+  const priceList = prices.data ? prices.data.filter((p) => p.isActive) : [];
+  const priceOf = new Map(priceList.map((p) => [p.category, Number(p.price)]));
+  const planTreatments = Array.from(new Set((plans.data ?? []).flatMap((pl) => pl.items.map((i) => i.category)))).filter((c) => priceOf.has(c));
+  const planTotal = planTreatments.reduce((n, c) => n + (priceOf.get(c) ?? 0), 0);
+
   const patients = useQuery({
     queryKey: qk.patients.list("invoice", { search: debounced }),
     queryFn: () => api.page<PatientRow>("/patients", { search: debounced || undefined, limit: 8 }),
@@ -103,6 +112,21 @@ function NewInvoiceForm() {
     onSuccess: (inv) => router.replace({ pathname: "/invoice/[id]", params: { id: inv.id } }),
   });
 
+  const treatmentLine = (category: string): Line => ({ key: lineSeq++, type: "THERAPY_SESSION", description: category, quantity: "1", unitPrice: String(priceOf.get(category) ?? 0) });
+  // The untouched starter line is replaced rather than left behind as a stray "Consultation".
+  const withoutStarter = (ls: Line[]) => (ls.length === 1 && ls[0].type === "CONSULTATION" && ls[0].description === "Consultation" && ls[0].unitPrice === "500" ? [] : ls);
+  const addPlanTreatments = () =>
+    setLines((ls) => {
+      const have = new Set(ls.map((l) => l.description));
+      const fresh = planTreatments.filter((c) => !have.has(c)).map(treatmentLine);
+      return fresh.length ? [...withoutStarter(ls), ...fresh] : ls;
+    });
+  const addTreatment = (category: string) =>
+    setLines((ls) => {
+      const same = ls.find((l) => l.type === "THERAPY_SESSION" && l.description === category);
+      if (same) return ls.map((l) => (l.key === same.key ? { ...l, quantity: String((Number(l.quantity) || 0) + 1) } : l));
+      return [...withoutStarter(ls), treatmentLine(category)];
+    });
   const update = (key: number, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   const missing = !patient ? "Choose the patient" : !linesOk ? "Each line needs a description, quantity of 1+ and a price" : !discountOk ? "Discount must be 0 or more" : null;
 
@@ -199,8 +223,37 @@ function NewInvoiceForm() {
             <Muted style={{ fontSize: 12, textAlign: "right" }}>Line total {inr((Number(l.quantity) || 0) * (Number(l.unitPrice) || 0))}</Muted>
           </View>
         ))}
-        <Button title="Add line" variant="ghost" small icon="add" onPress={() => setLines((ls) => [...ls, newLine("THERAPY_SESSION")])} style={{ alignSelf: "flex-start" }} />
+        {planTreatments.length > 0 ? (
+          <Button title={`Add plan treatments · ${inr(planTotal)}`} variant="gold" small icon="medkit-outline" onPress={addPlanTreatments} style={{ alignSelf: "flex-start" }} />
+        ) : null}
+        <Row gap={space.sm} style={{ flexWrap: "wrap" }}>
+          <Button title="Add treatment" variant="ghost" small icon="add" onPress={() => setPicking(true)} />
+          <Button title="Add line" variant="ghost" small icon="add" onPress={() => setLines((ls) => [...ls, newLine("THERAPY_SESSION")])} />
+        </Row>
       </Card>
+
+      <Sheet open={picking} onClose={() => setPicking(false)} title="Add a treatment">
+        {priceList.length === 0 ? (
+          <Muted>No treatment prices are set up yet. A Super Admin can add them in Settings.</Muted>
+        ) : (
+          priceList.map((p) => (
+            <Pressable
+              key={p.id}
+              onPress={() => {
+                addTreatment(p.category);
+                setPicking(false);
+              }}
+              accessibilityRole="button"
+              style={styles.pick}
+            >
+              <Text weight="semibold" style={{ flex: 1 }}>{p.category}</Text>
+              {planTreatments.includes(p.category) ? <Badge status="ACTIVE" text="In plan" /> : null}
+              <Text weight="bold">{inr(p.price)}</Text>
+            </Pressable>
+          ))
+        )}
+        <Muted style={{ fontSize: 12 }}>Adds a line at this price. You can change the price on the invoice.</Muted>
+      </Sheet>
 
       <Card>
         <SectionTitle>3. Discount & notes</SectionTitle>

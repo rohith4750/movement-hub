@@ -10,7 +10,7 @@ import { fullName } from "@/lib/format";
 import type { Patient, Therapist, TreatmentPlan } from "@/lib/types";
 import { ErrorText, Field } from "./ui";
 
-export const PLAN_CATEGORIES = ["Exercise Therapy", "Manual Therapy", "Electrotherapy", "Taping", "Dry Needling", "Hot/Cold Therapy", "Traction", "Education"];
+export const PLAN_CATEGORIES = ["Exercise Therapy", "Manual Therapy", "Myofascial Release", "Mobility", "Strength & Conditioning", "Electrotherapy", "Taping", "Dry Needling", "Hot/Cold Therapy", "Traction", "Education"];
 
 type Item = { id?: string; category: string; name: string; sets: string; reps: string; durationMinutes: string };
 const toNum = (v: string) => (v.trim() ? Number(v) : undefined);

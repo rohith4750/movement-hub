@@ -6,7 +6,7 @@ import { created, handler, idParam, meta, ok, paginationQuery, paging, q } from 
 import { env } from "../../config/env";
 import { audit } from "../../lib/audit";
 import { forbidden, HttpError } from "../../lib/http-error";
-import { authorize } from "../../middleware/auth";
+import { authorize, STAFF } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 
 export const settingsRouter = Router();
@@ -57,14 +57,55 @@ settingsRouter.patch(
   }),
 );
 
+/* ─────────────── Treatment prices (billing by treatment) ─────────────── */
+
+const priceList = () => prisma.treatmentPrice.findMany({ orderBy: [{ sortOrder: "asc" }, { category: "asc" }] });
+
+/** The price list used when billing. Every staff role can read it; only a Super Admin changes it. */
+settingsRouter.get(
+  "/treatment-prices",
+  authorize(...STAFF),
+  handler(async (_req, res) => ok(res, await priceList())),
+);
+
+/** Set the price of one or more treatment categories (a new category name is added to the list). */
+settingsRouter.put(
+  "/treatment-prices",
+  authorize("SUPER_ADMIN"),
+  validate({
+    body: z.object({
+      prices: z
+        .array(z.object({ category: z.string().trim().min(2).max(60), price: z.number().nonnegative().max(1_000_000), isActive: z.boolean().optional() }))
+        .min(1)
+        .max(50),
+    }),
+  }),
+  handler(async (req, res) => {
+    const before = await priceList();
+    const order = new Map(before.map((b) => [b.category, b.sortOrder]));
+    await prisma.$transaction(
+      (req.body.prices as { category: string; price: number; isActive?: boolean }[]).map((p, i) =>
+        prisma.treatmentPrice.upsert({
+          where: { category: p.category },
+          create: { category: p.category, price: p.price, isActive: p.isActive ?? true, sortOrder: 100 + i },
+          update: { price: p.price, ...(p.isActive === undefined ? {} : { isActive: p.isActive }), sortOrder: order.get(p.category) },
+        }),
+      ),
+    );
+    const after = await priceList();
+    await audit(req, "UPDATE", "TreatmentPrice", null, before, after);
+    ok(res, after);
+  }),
+);
+
 /* ─────────────── Flush data (go-live clean-up) ─────────────── */
 
 /**
- * Reference data that survives a flush: the branch and its settings, the service catalogues and the user
+ * Reference data that survives a flush: the branch and its settings, the service catalogues and price list, and the user
  * table itself (only admin accounts stay in it). Everything else - patients, staff profiles, appointments,
  * plans, bills, payments, notifications, audit trail - is activity and is deleted.
  */
-const KEEP_TABLES = new Set(["_prisma_migrations", "Branch", "HospitalSetting", "Specialization", "TreatmentPackage", "User"]);
+const KEEP_TABLES = new Set(["_prisma_migrations", "Branch", "HospitalSetting", "Specialization", "TreatmentPackage", "TreatmentPrice", "User"]);
 const ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"] as const;
 const RESET_PHRASE = "DELETE ALL DATA";
 const ident = (name: string) => `"${name.replace(/"/g, '""')}"`;

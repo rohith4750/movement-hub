@@ -24,7 +24,7 @@ const GROUPS = {
   /** Staff accounts, PINs. */
   staff: ["users", "therapists", "therapist"],
   /** Clinic settings (fees, hours). */
-  settings: ["settings", "dashboard", "invoice-preview"],
+  settings: ["settings", "treatment-prices", "dashboard", "invoice-preview"],
 } as const;
 
 export type RefreshGroup = keyof typeof GROUPS;

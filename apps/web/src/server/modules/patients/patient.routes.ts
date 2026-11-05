@@ -311,7 +311,7 @@ patientRouter.post(
 
 patientRouter.patch(
   "/:id/medical-history/:historyId",
-  authorize("PHYSIOTHERAPIST"),
+  authorize("PHYSIOTHERAPIST", "RECEPTIONIST"), // same people who can add an entry can correct it
   validate({ params: idParam.extend({ historyId: z.string().uuid() }), body: historyBody.partial() }),
   handler(async (req, res) => {
     const { diagnosedOn, ...data } = req.body;

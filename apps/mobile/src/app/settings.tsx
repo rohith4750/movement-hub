@@ -4,6 +4,7 @@ import { View } from "react-native";
 import { RequireRole, SectionTitle, SelectField, goBack, type Option } from "@/components/form";
 import { Button, Card, ErrorBox, Field, Input, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
+import { useTreatmentPrices } from "@/lib/queries";
 import { qk } from "@/lib/query-keys";
 import { useAction } from "@/lib/refresh";
 import { colors, space } from "@/theme";
@@ -133,6 +134,8 @@ function SettingsForm() {
             <Field label="GST %"><Input value={f.gstPercent} onChangeText={(t) => set("gstPercent", num(t))} keyboardType="decimal-pad" /></Field>
           </Card>
 
+          <TreatmentPrices />
+
           <SectionTitle>Clinic hours & booking</SectionTitle>
           <Card style={{ gap: space.md }}>
             <Row gap={space.sm} style={{ alignItems: "flex-start" }}>
@@ -162,6 +165,76 @@ function SettingsForm() {
         </>
       ) : null}
     </Screen>
+  );
+}
+
+/**
+ * Price per treatment, used when billing: pick a treatment on an invoice and its price is filled in.
+ * Saves on its own (separate from the settings form above).
+ */
+function TreatmentPrices() {
+  const q = useTreatmentPrices();
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [newName, setNewName] = useState("");
+  const [newPrice, setNewPrice] = useState("");
+  const rows = q.data ? q.data : [];
+  const changed = rows.filter((r) => edits[r.category] !== undefined && Number(edits[r.category]) !== Number(r.price));
+  const adding = newName.trim().length >= 2 && newPrice !== "";
+  const invalid = changed.some((r) => !Number.isFinite(Number(edits[r.category])) || edits[r.category] === "") || (newName.trim() !== "" && !adding);
+
+  const save = useAction(
+    () =>
+      api.put("/settings/treatment-prices", {
+        prices: [
+          ...changed.map((r) => ({ category: r.category, price: Number(edits[r.category]) })),
+          ...(adding ? [{ category: newName.trim(), price: Number(newPrice) }] : []),
+        ],
+      }),
+    {
+      refresh: ["settings"],
+      onSuccess: () => {
+        setEdits({});
+        setNewName("");
+        setNewPrice("");
+      },
+    },
+  );
+  const dirty = changed.length > 0 || adding;
+
+  return (
+    <>
+      <SectionTitle>Treatment prices (₹ each)</SectionTitle>
+      <Card style={{ gap: space.md }}>
+        {q.isLoading ? (
+          <Loading />
+        ) : q.error ? (
+          <ErrorBox error={q.error} onRetry={() => q.refetch()} />
+        ) : (
+          rows.map((r) => (
+            <Row key={r.id} gap={space.sm}>
+              <Text style={{ flex: 1 }} numberOfLines={1}>{r.category}</Text>
+              <View style={{ width: 120 }}>
+                <Input
+                  value={edits[r.category] !== undefined ? edits[r.category] : String(Number(r.price))}
+                  onChangeText={(t) => setEdits((e) => ({ ...e, [r.category]: t.replace(/[^\d.]/g, "") }))}
+                  keyboardType="decimal-pad"
+                  accessibilityLabel={`Price for ${r.category}`}
+                />
+              </View>
+            </Row>
+          ))
+        )}
+        <Muted style={{ fontSize: 12 }}>Add another treatment:</Muted>
+        <Row gap={space.sm}>
+          <View style={{ flex: 1 }}><Input value={newName} onChangeText={setNewName} placeholder="Treatment name" /></View>
+          <View style={{ width: 120 }}><Input value={newPrice} onChangeText={(t) => setNewPrice(t.replace(/[^\d.]/g, ""))} placeholder="Price" keyboardType="decimal-pad" /></View>
+        </Row>
+        <ErrorBox error={save.error} />
+        {invalid ? <Muted style={{ fontSize: 12, color: colors.warning }}>Enter a price for every treatment you change or add.</Muted> : null}
+        {save.isSuccess && !dirty ? <Text style={{ color: colors.success, fontSize: 13 }}>✓ Prices saved</Text> : null}
+        <Button title="Save prices" icon="save-outline" onPress={() => save.mutate()} disabled={!dirty || invalid} loading={save.isPending} />
+      </Card>
+    </>
   );
 }
 

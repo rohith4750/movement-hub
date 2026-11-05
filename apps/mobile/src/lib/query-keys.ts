@@ -68,4 +68,5 @@ export const qk = {
   specializations: () => ["specializations"] as const,
   users: () => ["users"] as const,
   settings: () => ["settings"] as const,
+  treatmentPrices: () => ["treatment-prices"] as const,
 };

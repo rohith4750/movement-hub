@@ -560,7 +560,7 @@ function SummaryItem({ icon: Icon, k, v }: { icon: typeof User; k: string; v?: s
   );
 }
 
-const PLAN_CATEGORIES = ["Exercise Therapy", "Manual Therapy", "Electrotherapy", "Taping", "Dry Needling", "Hot/Cold Therapy", "Traction", "Education"];
+const PLAN_CATEGORIES = ["Exercise Therapy", "Manual Therapy", "Myofascial Release", "Mobility", "Strength & Conditioning", "Electrotherapy", "Taping", "Dry Needling", "Hot/Cold Therapy", "Traction", "Education"];
 type PlanItem = { category: string; name: string };
 
 /** Compact treatment-plan form used inline on the booking page. Creates the plan already active. */

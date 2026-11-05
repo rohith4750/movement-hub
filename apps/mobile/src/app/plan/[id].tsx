@@ -11,7 +11,8 @@ import { Badge, Button, Card, Chips, ErrorBox, Field, H2, Input, KeyValue, Loadi
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
-import { date, fullName } from "@/lib/format";
+import { date, fullName, inr } from "@/lib/format";
+import { useTreatmentPrices } from "@/lib/queries";
 import { OUTCOME_LABEL, type PlanDetail, type TreatmentOutcome } from "@/lib/types";
 import { colors, space } from "@/theme";
 
@@ -26,6 +27,8 @@ export default function PlanScreen() {
   const qc = useQueryClient();
   const user = useAuth((s) => s.user);
   const q = useQuery({ queryKey: qk.plan(id), queryFn: () => api.get<Detail>(`/treatment-plans/${id}`), enabled: !!id });
+  const prices = useTreatmentPrices();
+  const priceOf = new Map((prices.data ?? []).filter((x) => x.isActive).map((x) => [x.category, Number(x.price)]));
   const p = q.data;
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -177,14 +180,11 @@ export default function PlanScreen() {
             </Card>
           ) : null}
 
-          {canEdit || canActivate || canComplete || canCancel || canDelete ? (
+          {/* A draft plan's next step stays up here; the other actions come after the plan's content. */}
+          {canActivate ? (
             <View style={{ gap: space.sm }}>
-              <ErrorBox error={actError ?? remove.error} />
-              {canEdit ? <Button title="Edit plan" variant="ghost" icon="create-outline" onPress={() => router.push({ pathname: "/plan/edit/[id]", params: { id: p.id } })} /> : null}
-              {canActivate ? <Button title="Activate plan" icon="play-circle-outline" onPress={() => act.mutate()} loading={act.isPending} /> : null}
-              {canComplete ? <Button title="Complete treatment" variant="gold" icon="checkmark-done-outline" onPress={openDischarge} /> : null}
-              {canCancel ? <Button title="Cancel plan" variant="danger" icon="close-circle-outline" onPress={() => { cancel.reset(); setCancelOpen(true); }} /> : null}
-              {canDelete ? <Button title="Delete plan" variant="danger" icon="trash-outline" onPress={() => remove.mutate()} loading={remove.isPending} /> : null}
+              <ErrorBox error={actError} />
+              <Button title="Activate plan" icon="play-circle-outline" onPress={() => act.mutate()} loading={act.isPending} />
             </View>
           ) : null}
 
@@ -215,7 +215,10 @@ export default function PlanScreen() {
             ) : (
               p.items.map((i) => (
                 <View key={i.id} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.navy50 }}>
-                  <Text weight="semibold">{i.name}</Text>
+                  <Row style={{ justifyContent: "space-between" }}>
+                    <Text weight="semibold" style={{ flex: 1 }}>{i.name}</Text>
+                    {priceOf.has(i.category) ? <Text weight="semibold" style={{ fontSize: 13, color: colors.gold700 }}>{inr(priceOf.get(i.category))}</Text> : null}
+                  </Row>
                   <Muted style={{ fontSize: 12 }}>
                     {[i.category, i.sets && `${i.sets} sets`, i.reps && `${i.reps} reps`, i.durationMinutes && `${i.durationMinutes} min`].filter(Boolean).join(" · ")}
                   </Muted>
@@ -245,6 +248,16 @@ export default function PlanScreen() {
               ))
             )}
           </Card>
+
+          {canEdit || canComplete || canCancel || canDelete ? (
+            <View style={{ gap: space.sm }}>
+              <ErrorBox error={remove.error} />
+              {canEdit ? <Button title="Edit plan" variant="ghost" icon="create-outline" onPress={() => router.push({ pathname: "/plan/edit/[id]", params: { id: p.id } })} /> : null}
+              {canComplete ? <Button title="Complete treatment" variant="gold" icon="checkmark-done-outline" onPress={openDischarge} /> : null}
+              {canCancel ? <Button title="Cancel plan" variant="danger" icon="close-circle-outline" onPress={() => { cancel.reset(); setCancelOpen(true); }} /> : null}
+              {canDelete ? <Button title="Delete plan" variant="danger" icon="trash-outline" onPress={() => remove.mutate()} loading={remove.isPending} /> : null}
+            </View>
+          ) : null}
 
           <Sheet
             open={completeOpen}

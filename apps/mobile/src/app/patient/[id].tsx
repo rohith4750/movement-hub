@@ -10,6 +10,7 @@ import { Linking, Pressable, View } from "react-native";
 import { QuickPlanForm } from "@/components/clinical-plan-form";
 import { ListRow, SectionTitle, Sheet } from "@/components/form";
 import { MedicalHistorySheet, PainProgressCard, SellPackageSheet } from "@/components/patient-sheets";
+import type { MedicalHistoryEntry } from "@/lib/types";
 import { Badge, Button, Card, ErrorBox, H2, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
@@ -27,6 +28,7 @@ export default function PatientScreen() {
   const p = q.data;
   const age = ageYears(p?.dateOfBirth);
   const [panel, setPanel] = useState<Panel>(null);
+  const [editingHistory, setEditingHistory] = useState<MedicalHistoryEntry | null>(null); // the entry being edited
 
   // Same role rules as the API routes.
   const canBook = hasRole(user, "ADMIN", "RECEPTIONIST");
@@ -104,7 +106,7 @@ export default function PatientScreen() {
               <SectionTitle>Actions</SectionTitle>
               {canPlan ? <ListRow icon="clipboard-outline" title="Create treatment plan" subtitle="Write a plan for this patient" onPress={() => router.push({ pathname: "/plan/new", params: { patientId: id } })} /> : null}
               {canSell ? <ListRow icon="pricetags-outline" title="Sell package" subtitle="Creates the package and a GST invoice" onPress={() => setPanel("package")} /> : null}
-              {canAddHistory ? <ListRow icon="medkit-outline" title="Add medical history" subtitle="Conditions, medications, allergies" onPress={() => setPanel("history")} /> : null}
+              {canAddHistory ? <ListRow icon="medkit-outline" title="Add medical history" subtitle="Conditions, medications, allergies" onPress={() => { setEditingHistory(null); setPanel("history"); }} /> : null}
             </View>
           ) : null}
 
@@ -127,7 +129,7 @@ export default function PatientScreen() {
           <Card>
             <Row style={{ justifyContent: "space-between" }}>
               <H2>Medical history</H2>
-              {canAddHistory ? <Button title="Add" variant="ghost" small icon="add" onPress={() => setPanel("history")} /> : null}
+              {canAddHistory ? <Button title="Add" variant="ghost" small icon="add" onPress={() => { setEditingHistory(null); setPanel("history"); }} /> : null}
             </Row>
             {p.medicalHistory.length === 0 ? (
               <Muted>None recorded.</Muted>
@@ -135,8 +137,22 @@ export default function PatientScreen() {
               p.medicalHistory.map((h) => (
                 <View key={h.id} style={{ paddingVertical: 4 }}>
                   <Row gap={6}>
-                    <Text weight="semibold">{h.condition}</Text>
+                    <Text weight="semibold" style={{ flex: 1 }}>{h.condition}</Text>
                     {h.isOngoing ? <Badge status="ACTIVE" text="Ongoing" /> : null}
+                    {canAddHistory ? (
+                      <Pressable
+                        onPress={() => {
+                          setEditingHistory(h);
+                          setPanel("history");
+                        }}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Edit ${h.condition}`}
+                        style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.navy50, alignItems: "center", justifyContent: "center" }}
+                      >
+                        <Ionicons name="create-outline" size={16} color={colors.navy700} />
+                      </Pressable>
+                    ) : null}
                   </Row>
                   {h.details ? <Muted style={{ fontSize: 12 }}>{h.details}</Muted> : null}
                   {h.medications || h.allergies ? <Muted style={{ fontSize: 12 }}>Medications: {h.medications ?? "—"} · Allergies: {h.allergies ?? "—"}</Muted> : null}
@@ -214,7 +230,16 @@ export default function PatientScreen() {
             </>
           ) : null}
 
-          <MedicalHistorySheet patientId={p.id} open={panel === "history"} onClose={() => setPanel(null)} />
+          <MedicalHistorySheet
+            key={editingHistory ? editingHistory.id : "new"}
+            patientId={p.id}
+            entry={editingHistory}
+            open={panel === "history"}
+            onClose={() => {
+              setPanel(null);
+              setEditingHistory(null);
+            }}
+          />
           <SellPackageSheet patientId={p.id} open={panel === "package"} onClose={() => setPanel(null)} />
           <Sheet open={panel === "plan"} onClose={() => setPanel(null)} title={`New plan · ${fullName(p)}`}>
             <QuickPlanForm

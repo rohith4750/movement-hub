@@ -10,7 +10,7 @@ import { fullName } from "@/lib/format";
 import type { Appointment } from "@/lib/types";
 
 type Item = { category: string; name: string; sets?: number; reps?: number; durationMinutes?: number };
-const CATEGORIES = ["Manual Therapy", "Electrotherapy", "Exercise Therapy", "Taping", "Dry Needling", "Hot/Cold Therapy", "Traction", "Education"];
+const CATEGORIES = ["Manual Therapy", "Myofascial Release", "Mobility", "Strength & Conditioning", "Electrotherapy", "Exercise Therapy", "Taping", "Dry Needling", "Hot/Cold Therapy", "Traction", "Education"];
 
 export default function NewConsultationPage() {
   return (
