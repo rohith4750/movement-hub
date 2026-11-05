@@ -22,6 +22,7 @@ import { documentRouter } from "./modules/documents/document.routes";
 import { reportRouter } from "./modules/reports/report.routes";
 import { analyticsRouter } from "./modules/reports/analytics.routes";
 import { plannerRouter } from "./modules/planner/planner.routes";
+import { tvRouter } from "./modules/tv/tv.routes";
 import { auditRouter, branchRouter, settingsRouter } from "./modules/settings/settings.routes";
 import { unauthorized, notFound } from "./lib/http-error";
 
@@ -62,6 +63,7 @@ export function createApiHandler() {
 
   v1.use("/auth", authRouter);
   v1.use("/notifications/whatsapp/webhook", whatsappWebhookRouter);
+  v1.use("/tv", tvRouter);
 
   // Authenticated
   v1.use(authenticate);

@@ -1,3 +1,4 @@
+import { File, Paths } from "expo-file-system";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { ApiError } from "@/lib/api";
@@ -27,7 +28,14 @@ export async function sharePdfFromApi(path: string) {
   try {
     if (await Sharing.isAvailableAsync()) {
       const { uri } = await Print.printToFileAsync({ html });
-      await Sharing.shareAsync(uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf", dialogTitle: "Share PDF" });
+
+      // expo-sharing's FileProvider on some Android devices can't read the temp path
+      // that expo-print writes to. Move the PDF into the app's cache directory first.
+      const srcFile = new File(uri);
+      const destFile = new File(Paths.cache, srcFile.name ?? `invoice-${Date.now()}.pdf`);
+      srcFile.move(destFile);
+
+      await Sharing.shareAsync(destFile.uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf", dialogTitle: "Share PDF" });
       return;
     }
   } catch (err) {

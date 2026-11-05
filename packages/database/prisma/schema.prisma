@@ -251,6 +251,10 @@ model HospitalSetting {
   cancellationHours     Int      @default(4)
   reminderHoursBefore   Int      @default(24)
   invoicePrefix         String   @default("MH")
+  tvStaffKey            String?  @default("staff-wall-access")
+  tvQrUrl               String?  @default("https://g.page/r/movement-hub/review")
+  tvQrLabel             String?  @default("Google Review")
+  tvSlides              Json?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -536,6 +540,7 @@ model Appointment {
   checkedInAt     DateTime?
   completedAt     DateTime?
   cancelledAt     DateTime?
+  roomOrBay       String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 

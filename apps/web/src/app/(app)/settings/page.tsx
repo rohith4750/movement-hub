@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ErrorText, Field, Modal, PageHeader, Spinner } from "@/components/ui";
+import { Tv, Volume2 } from "lucide-react";
+import { ErrorText, Field, PageHeader, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-store";
 import { label } from "@/lib/format";
+import { playClinicChime } from "@/lib/tv-chime";
 
 type Settings = Record<string, string | number> & { branch: { name: string; gstin: string | null } };
 
@@ -22,6 +25,9 @@ const FIELDS: { key: string; type: "number" | "time" | "text" }[] = [
   { key: "cancellationHours", type: "number" },
   { key: "reminderHoursBefore", type: "number" },
   { key: "invoicePrefix", type: "text" },
+  { key: "tvStaffKey", type: "text" },
+  { key: "tvQrUrl", type: "text" },
+  { key: "tvQrLabel", type: "text" },
 ];
 
 export default function SettingsPage() {
@@ -29,18 +35,108 @@ export default function SettingsPage() {
   const role = useAuth((s) => s.user?.role);
   const q = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Settings>("/settings") });
   const [f, setF] = useState<Record<string, string>>({});
+
   useEffect(() => {
     if (q.data) setF(Object.fromEntries(FIELDS.map(({ key }) => [key, String(q.data[key] ?? "")])));
   }, [q.data]);
+
   const save = useMutation({
     mutationFn: () => api.patch("/settings", Object.fromEntries(FIELDS.map(({ key, type }) => [key, type === "number" ? Number(f[key]) : f[key]]))),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });
 
   if (q.isLoading) return <Spinner />;
+
   return (
     <>
       <PageHeader title="Hospital settings" subtitle={q.data?.branch.name} />
+
+      {/* ── TV DISPLAY / SMART TV READ-ONLY BOARDS ── */}
+      <div className="card mb-6 space-y-4">
+        <div className="flex items-center justify-between border-b border-navy-100 pb-3">
+          <div>
+            <h2 className="text-lg font-bold text-navy-900 flex items-center gap-2">
+              <Tv className="text-gold-600" size={20} />
+              Clinic TV &amp; Wall Displays
+            </h2>
+            <p className="text-xs text-navy-500">
+              Opens on any Smart TV browser (Samsung Tizen, LG webOS), Fire TV stick, Chromecast, or mini PC. No installation required.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={playClinicChime}
+            className="btn-ghost flex items-center gap-1.5 text-xs text-gold-700 hover:text-gold-800"
+          >
+            <Volume2 size={16} /> Test Waiting Chime
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          {/* Waiting Room TV */}
+          <div className="rounded-xl border border-navy-200/80 bg-navy-50/50 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold text-navy-900">1. Patient Waiting-Room Board</span>
+              <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
+                PUBLIC / READ-ONLY
+              </span>
+            </div>
+            <p className="text-xs text-navy-600 mb-4">
+              Patient privacy-masked (first name + initial). Shows current sessions, next up queue, rotating clinic timings, health tips, and call-out chime.
+            </p>
+            <div className="flex items-center gap-2">
+              <Link href="/tv" target="_blank" className="btn-primary text-xs py-1.5 flex items-center gap-1.5">
+                <Tv size={14} /> Open TV Board
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    navigator.clipboard.writeText(`${window.location.origin}/tv`);
+                    alert(`Copied: ${window.location.origin}/tv`);
+                  }
+                }}
+                className="btn-ghost text-xs py-1.5"
+              >
+                Copy Link
+              </button>
+            </div>
+          </div>
+
+          {/* Staff Wall TV */}
+          <div className="rounded-xl border border-navy-200/80 bg-navy-50/50 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold text-navy-900">2. Back-Office Staff Wall</span>
+              <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+                INTERNAL / KEY PROTECTED
+              </span>
+            </div>
+            <p className="text-xs text-navy-600 mb-4">
+              Operational schedule for the staff room. Shows per-physio load, walk-in counts, and full timeline with patient codes.
+            </p>
+            <div className="flex items-center gap-2">
+              <Link href={`/tv/staff?key=${f.tvStaffKey || ""}`} target="_blank" className="btn-primary text-xs py-1.5 flex items-center gap-1.5">
+                <Tv size={14} /> Open Staff Wall
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    const url = `${window.location.origin}/tv/staff?key=${f.tvStaffKey || ""}`;
+                    navigator.clipboard.writeText(url);
+                    alert(`Copied: ${url}`);
+                  }
+                }}
+                className="btn-ghost text-xs py-1.5"
+              >
+                Copy Link
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── GENERAL SETTINGS ── */}
       <div className="card grid gap-4 md:grid-cols-3">
         {FIELDS.map(({ key, type }) => (
           <Field key={key} label={label(key.replace(/([A-Z])/g, "_$1"))}>
@@ -48,8 +144,13 @@ export default function SettingsPage() {
           </Field>
         ))}
         <div className="md:col-span-3"><ErrorText error={save.error ?? q.error} /></div>
-        <div className="md:col-span-3 flex justify-end"><button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>{save.isSuccess ? "Saved ✓" : "Save settings"}</button></div>
+        <div className="md:col-span-3 flex justify-end">
+          <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
+            {save.isSuccess ? "Saved ✓" : "Save settings"}
+          </button>
+        </div>
       </div>
+
       {role === "SUPER_ADMIN" ? <DangerZone /> : null}
     </>
   );
@@ -80,52 +181,32 @@ function DangerZone() {
       router.replace("/login");
     },
   });
-  const p = preview.data;
-  const ready = !!p && p.enabled && password.length > 0 && typed === p.phrase;
-  const close = () => {
-    setOpen(false);
-    setPassword("");
-    setTyped("");
-    flush.reset();
-  };
 
   return (
-    <>
-      <div className="card mt-6 border-red-300">
-        <h2 className="font-semibold text-red-700">Danger zone</h2>
-        <p className="mt-1 text-sm text-navy-500">Delete all patients, staff profiles, appointments, plans, bills and payments, but keep the admin accounts, branch settings and service catalogues. Use this once, before going live.</p>
-        <div className="mt-3"><button className="btn-ghost border border-red-300 text-red-700" onClick={() => setOpen(true)}>Review &amp; flush data…</button></div>
+    <div className="card mt-6 border-rose-200 bg-rose-50/40">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-rose-900">Reset hospital data</h3>
+          <p className="text-xs text-rose-700">Wipe test patients, appointments, billing and audit logs. Only admin accounts and clinic catalog remain.</p>
+        </div>
+        <button className="btn-danger" onClick={() => setOpen(true)}>Reset data…</button>
       </div>
-
-      <Modal open={open} onClose={close} title="Flush all data except admin accounts">
-        {preview.isLoading ? <Spinner /> : p ? (
-          <div className="space-y-4">
-            <div className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
-              This permanently deletes <b>{p.totalRows}</b> records and <b>{p.usersRemoved}</b> non-admin account(s). It cannot be undone. Back up first (for example a Neon branch or snapshot).
-            </div>
-            {p.tables.length ? (
-              <div>
-                <div className="label">Will be deleted</div>
-                <ul className="mt-1 grid grid-cols-2 gap-x-4 text-sm">{p.tables.map((t) => <li key={t.table} className="flex justify-between"><span>{label(t.table.replace(/([A-Z])/g, "_$1").replace(/^_/, ""))}</span><b>{t.rows}</b></li>)}</ul>
-              </div>
-            ) : <p className="text-sm text-navy-500">There is no activity data to delete.</p>}
-            <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">Kept: <b>{p.adminsKept}</b> admin account(s), the branch and its settings, specialisations and the package catalogue.</div>
-            {!p.enabled && (
-              <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                Flushing is switched off on this server. Set <code>ALLOW_DATA_RESET=true</code> in the server environment variables and redeploy, run this, then remove the variable.
-              </div>
-            )}
-            <Field label="Your password"><input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
-            <Field label={`Type ${p.phrase} to confirm`}><input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} /></Field>
-            <ErrorText error={flush.error} />
+      {open ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="card max-w-md space-y-4">
+            <h4 className="font-bold text-navy-900">Confirm Reset</h4>
+            <p className="text-xs text-navy-600">This action cannot be undone. Enter your password and confirmation phrase to proceed.</p>
+            <input className="input" type="password" placeholder="Admin password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input className="input" placeholder={`Type "${preview.data?.phrase ?? ""}"`} value={typed} onChange={(e) => setTyped(e.target.value)} />
             <div className="flex justify-end gap-2">
-              <button className="btn-ghost" onClick={close}>Cancel</button>
-              <button className="btn-primary bg-red-700 hover:bg-red-800" disabled={!ready || flush.isPending} onClick={() => flush.mutate()}>{flush.isPending ? "Deleting…" : "Delete all data"}</button>
+              <button className="btn-ghost" onClick={() => setOpen(false)}>Cancel</button>
+              <button className="btn-danger" disabled={flush.isPending || typed !== preview.data?.phrase} onClick={() => flush.mutate()}>
+                {flush.isPending ? "Resetting…" : "Confirm Reset"}
+              </button>
             </div>
           </div>
-        ) : <ErrorText error={preview.error} />}
-      </Modal>
-    </>
+        </div>
+      ) : null}
+    </div>
   );
 }
-

@@ -45,6 +45,10 @@ settingsRouter.patch(
         cancellationHours: z.number().int().min(0).max(72),
         reminderHoursBefore: z.number().int().min(1).max(72),
         invoicePrefix: z.string().min(1).max(10),
+        tvStaffKey: z.string().min(3).max(60).optional(),
+        tvQrUrl: z.string().url().optional(),
+        tvQrLabel: z.string().min(1).max(50).optional(),
+        tvSlides: z.any().optional(),
       })
       .partial(),
   }),

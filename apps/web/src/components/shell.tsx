@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  Activity, BarChart3, CalendarClock, CalendarDays, ClipboardList, CreditCard, Home, LayoutDashboard, LogOut, Menu, Package, Settings, Stethoscope, UserCog, Users,
+  Activity, BarChart3, CalendarClock, CalendarDays, ClipboardList, CreditCard, Home, LayoutDashboard, LogOut, Menu, Package, Settings, Stethoscope, Tv, UserCog, Users,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { hasRole, useAuth, type Role } from "@/lib/auth-store";
@@ -28,6 +28,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: "/appointments", label: "Appointments", icon: CalendarClock, roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST", "PATIENT"] },
       { href: "/patients", label: "Patients", icon: Users, roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST", "ACCOUNTANT"] },
+      { href: "/tv", label: "Waiting TV Board", icon: Tv, roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST"] },
       { href: "/home-visits", label: "Home Visits", icon: Home, roles: ["ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST"] },
     ],
   },
