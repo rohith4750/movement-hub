@@ -2,6 +2,7 @@ import { Router } from "../../router";
 import { prisma } from "@movement-hub/database";
 import { dayRange, localTimeString, todayLocal } from "../../lib/time";
 import { notFound, unauthorized } from "../../lib/http-error";
+import { generateSlots } from "../scheduling/scheduling.service";
 
 export const tvRouter = Router();
 
@@ -14,8 +15,11 @@ function formatPrivacyName(firstName: string, lastName?: string | null): string 
 
 /**
  * 1. Public Waiting-Room Board API
- * Strictly privacy-safe. Returns only what patients in the waiting area are allowed to see.
- * Excludes phone numbers, diagnosis, financials, and full last names.
+ * Strictly privacy-safe. Returns:
+ * - How many physiotherapists are on duty & who is currently free
+ * - Free bookable/walk-in slots for each physiotherapist today
+ * - Now in Session & Next Up queue (for clinics displaying patient flow)
+ * - Rotating clinic announcement slides & QR code
  */
 tvRouter.get("/board", async (req, res, next) => {
   try {
@@ -28,8 +32,51 @@ tvRouter.get("/board", async (req, res, next) => {
 
     const today = todayLocal();
     const range = dayRange(today);
+    const now = new Date();
 
-    // Fetch today's live & upcoming appointments
+    // 1. Fetch active therapists with specializations, leave, and slots
+    const therapists = await prisma.therapist.findMany({
+      where: { branchId: branch.id, isActive: true },
+      include: {
+        user: { select: { name: true } },
+        specializations: { include: { specialization: { select: { name: true } } } },
+        leaves: {
+          where: {
+            status: "APPROVED",
+            startDate: { lte: range.lt },
+            endDate: { gte: range.gte },
+          },
+        },
+        slots: {
+          where: {
+            startAt: { gte: range.gte, lt: range.lt },
+            status: "AVAILABLE",
+          },
+          orderBy: { startAt: "asc" },
+        },
+      },
+    });
+
+    // Auto-generate today's slots if none exist yet for these therapists
+    const totalExistingSlots = await prisma.therapistSlot.count({
+      where: { startAt: range, therapistId: { in: therapists.map((t) => t.id) } },
+    });
+    if (totalExistingSlots === 0 && therapists.length > 0) {
+      await Promise.all(therapists.map((t) => generateSlots(t.id, today, today).catch(() => null)));
+      const refreshedSlots = await prisma.therapistSlot.findMany({
+        where: {
+          startAt: { gte: range.gte, lt: range.lt },
+          status: "AVAILABLE",
+          therapistId: { in: therapists.map((t) => t.id) },
+        },
+        orderBy: { startAt: "asc" },
+      });
+      for (const t of therapists) {
+        t.slots = refreshedSlots.filter((s) => s.therapistId === t.id);
+      }
+    }
+
+    // 2. Fetch today's live & upcoming appointments
     const appointments = await prisma.appointment.findMany({
       where: {
         branchId: branch.id,
@@ -50,6 +97,7 @@ tvRouter.get("/board", async (req, res, next) => {
       id: a.id,
       appointmentNo: a.appointmentNo,
       patientName: formatPrivacyName(a.patient.firstName, a.patient.lastName),
+      therapistId: a.therapist.id,
       therapistName: a.therapist.user.name,
       colorTag: a.therapist.colorTag ?? "#1e3a8a",
       time: localTimeString(a.startAt),
@@ -57,6 +105,58 @@ tvRouter.get("/board", async (req, res, next) => {
       roomOrBay: a.roomOrBay ?? (a.type === "INITIAL_CONSULTATION" ? "Cabin" : "Bay"),
       sessionNumber: a.therapySession?.sessionNumber ?? null,
     }));
+
+    // ── THERAPIST AVAILABILITY & FREE SLOTS ──
+    const physioStatusList = therapists.map((t) => {
+      const isOnLeave = t.leaves.length > 0;
+      const currentAppt = inProgress.find((a) => a.therapist.id === t.id);
+      const isFreeNow = !isOnLeave && !currentAppt;
+
+      // Free slots for today that are still in the future or ongoing
+      const upcomingFreeSlots = t.slots
+        .filter((s) => s.endAt > now)
+        .map((s) => ({
+          id: s.id,
+          time: localTimeString(s.startAt),
+          startAt: s.startAt.toISOString(),
+        }));
+
+      // Next scheduled appointment
+      const nextAppt = appointments.find(
+        (a) => a.therapist.id === t.id && a.status !== "IN_PROGRESS" && a.startAt > now
+      );
+
+      const specs = t.specializations.map((s) => s.specialization.name);
+
+      return {
+        id: t.id,
+        name: t.user.name,
+        qualification: t.qualification,
+        experienceYears: t.experienceYears,
+        specializations: specs,
+        colorTag: t.colorTag ?? "#059669",
+        isOnLeave,
+        isFreeNow,
+        statusText: isOnLeave ? "ON LEAVE" : isFreeNow ? "FREE NOW" : "IN SESSION",
+        currentSession: currentAppt
+          ? {
+              roomOrBay: currentAppt.roomOrBay ?? (currentAppt.type === "INITIAL_CONSULTATION" ? "Cabin" : "Bay"),
+              endsAt: localTimeString(currentAppt.endAt),
+            }
+          : null,
+        nextAppointmentTime: nextAppt ? localTimeString(nextAppt.startAt) : null,
+        freeSlotsCount: upcomingFreeSlots.length,
+        freeSlots: upcomingFreeSlots.map((s) => s.time),
+      };
+    });
+
+    const summary = {
+      totalPhysios: physioStatusList.length,
+      freeNowCount: physioStatusList.filter((p) => p.isFreeNow).length,
+      inSessionCount: physioStatusList.filter((p) => !p.isFreeNow && !p.isOnLeave).length,
+      onLeaveCount: physioStatusList.filter((p) => p.isOnLeave).length,
+      totalFreeSlots: physioStatusList.reduce((acc, p) => acc + p.freeSlotsCount, 0),
+    };
 
     // ── NEXT UP (CHECKED_IN first, then SCHEDULED/CONFIRMED) ──
     const waiting = appointments.filter((a) => a.status !== "IN_PROGRESS");
@@ -124,6 +224,8 @@ tvRouter.get("/board", async (req, res, next) => {
           openingTime: settings?.openingTime ?? "08:00",
           closingTime: settings?.closingTime ?? "20:00",
         },
+        summary,
+        therapists: physioStatusList,
         nowInSession,
         nextUp,
         slides,

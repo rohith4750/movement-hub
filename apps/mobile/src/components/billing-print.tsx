@@ -16,6 +16,7 @@ export async function sharePdfFromApi(path: string) {
   try {
     res = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token ?? ""}`, Accept: "text/html" } });
   } catch {
+
     throw new ApiError(0, "NETWORK", "Can't reach Movement Hub. Check your internet connection.");
   }
   if (!res.ok) {
