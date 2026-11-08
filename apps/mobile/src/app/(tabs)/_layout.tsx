@@ -36,8 +36,11 @@ export default function TabLayout() {
   if (status !== "signedIn") return <Redirect href="/login" />;
 
   const show = (ok: boolean) => (ok ? undefined : null); // href: null hides a tab
-  const visits = hasRole(user, "ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST");
-  const sessions = hasRole(user, "ADMIN", "PHYSIOTHERAPIST");
+  // Physiotherapists get three plain tabs: My day (their patients, one button each), Patients, More.
+  // "Visits" and "Sessions" were two lists of the same patients, so their screens now live inside My day.
+  const simple = user?.role === "PHYSIOTHERAPIST";
+  const visits = !simple && hasRole(user, "ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST");
+  const sessions = !simple && hasRole(user, "ADMIN", "PHYSIOTHERAPIST");
   const patients = hasRole(user, "ADMIN", "RECEPTIONIST", "PHYSIOTHERAPIST", "ACCOUNTANT");
 
   return (
@@ -48,10 +51,13 @@ export default function TabLayout() {
         tabBarInactiveTintColor: "#8E95B0",
         // Labels keep one size whatever the phone's "font size" setting is, so they always fit in the bar.
         tabBarAllowFontScaling: false,
-        tabBarLabelStyle: { fontFamily: fonts.semibold, fontSize: narrow ? 10 : 11, lineHeight: 14, letterSpacing: narrow ? 0 : 0.1 },
+        // Three tabs have room for bigger, easier-to-read labels than five.
+        tabBarLabelStyle: simple
+          ? { fontFamily: fonts.bold, fontSize: 13, lineHeight: 16 }
+          : { fontFamily: fonts.semibold, fontSize: narrow ? 10 : 11, lineHeight: 14, letterSpacing: narrow ? 0 : 0.1 },
         tabBarStyle: {
           // An explicit height replaces the default, so the phone's navigation bar (insets.bottom) has to be added here.
-          height: TAB_ROW_HEIGHT + insets.bottom,
+          height: TAB_ROW_HEIGHT + (simple ? 4 : 0) + insets.bottom,
           paddingTop: 8,
           paddingBottom: insets.bottom,
           backgroundColor: colors.white,
@@ -67,7 +73,7 @@ export default function TabLayout() {
         tabBarItemStyle: { borderRadius: 18 },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: "Today", tabBarIcon: TodayIcon }} />
+      <Tabs.Screen name="index" options={{ title: simple ? "My day" : "Today", tabBarIcon: TodayIcon }} />
       <Tabs.Screen name="appointments" options={{ title: "Visits", tabBarIcon: VisitsIcon, href: show(visits) }} />
       <Tabs.Screen name="patients" options={{ title: "Patients", tabBarIcon: PatientsIcon, href: show(patients) }} />
       <Tabs.Screen name="sessions" options={{ title: "Sessions", tabBarIcon: SessionsIcon, href: show(sessions) }} />

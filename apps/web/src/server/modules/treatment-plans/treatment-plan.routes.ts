@@ -167,7 +167,6 @@ treatmentPlanRouter.post(
     if (!therapist) throw badRequest("Physiotherapist not found or inactive");
     const patient = await prisma.patient.findFirst({ where: { id: data.patientId, deletedAt: null } });
     if (!patient) throw badRequest("Patient not found");
-    if (activate && items.length === 0) throw unprocessable("PLAN_EMPTY", "Add at least one treatment before activating");
     if (data.consultationId) {
       const c = await prisma.consultation.findUniqueOrThrow({ where: { id: data.consultationId }, include: { assessment: { select: { diagnosis: true } } } });
       if (c.patientId !== data.patientId) throw badRequest("Consultation belongs to another patient");
@@ -240,8 +239,6 @@ treatmentPlanRouter.post(
   handler(async (req, res) => {
     const plan = await editable(req, req.params.id);
     if (plan.status !== "DRAFT") throw unprocessable("INVALID_STATUS", `Plan is ${plan.status}`);
-    const items = await prisma.treatmentPlanItem.count({ where: { treatmentPlanId: plan.id } });
-    if (items === 0) throw unprocessable("PLAN_EMPTY", "Add at least one treatment before activating");
     const { updated, replaced } = await prisma.$transaction(async (tx) => {
       const r = await ensureSingleActivePlan(tx, { patientId: plan.patientId, newPlanId: plan.id, newPlanNo: plan.planNo, replaceActive: req.body.replaceActive });
       const u = await tx.treatmentPlan.update({

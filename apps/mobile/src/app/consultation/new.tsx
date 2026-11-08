@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useRef, useState } from "react";
 import { Pressable, Switch, View } from "react-native";
-import { emptyItem, emptyPlan, PainScale, PlanFields, PlanItemsEditor, planBody, planProblem, type PlanDraft, type PlanItemDraft } from "@/components/clinical-plan-form";
+import { emptyItem, emptyPlan, PainScale, PlanFields, PlanItemsEditor, planBody, type PlanDraft, type PlanItemDraft } from "@/components/clinical-plan-form";
 import { DateField, goBack, RequireRole, SectionTitle } from "@/components/form";
 import { Badge, Button, Card, ErrorBox, Field, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -164,9 +164,7 @@ function ConsultationForm({ appt, draft }: { appt: Appointment; draft: Consultat
       ? "This appointment is not a consultation."
       : closed
         ? `This appointment is ${label(appt.status).toLowerCase()}.`
-        : makePlan
-            ? planProblem(plan, items)
-            : null;
+        : null;
 
   return (
     <Screen

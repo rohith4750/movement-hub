@@ -1,5 +1,6 @@
 import { API_URL } from "./config";
 import { useAuth, type Session } from "./auth";
+import { trackRequest } from "./connection";
 
 export class ApiError extends Error {
   constructor(
@@ -17,7 +18,11 @@ export interface Paged<T> {
   meta: { page: number; limit: number; total: number; totalPages: number };
 }
 
-const TIMEOUT_MS = 20_000;
+// A weak signal can take a while but still get there, so the app waits longer before giving up
+// (it shows a "slow connection" notice after 5 s, see lib/connection.ts). Saves wait longest: a request that
+// is cut off early may already have been processed by the server, and that can't be retried safely.
+const READ_TIMEOUT_MS = 30_000;
+const WRITE_TIMEOUT_MS = 45_000;
 let refreshing: Promise<boolean> | null = null;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -48,16 +53,19 @@ export function warmUp(force = false): Promise<void> {
   return warming;
 }
 
-async function fetchOnce(url: string, init: RequestInit, timeoutMs = TIMEOUT_MS) {
+async function fetchOnce(url: string, init: RequestInit, timeoutMs = READ_TIMEOUT_MS) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const tracked = trackRequest();
   try {
     const res = await fetch(url, { ...init, signal: ctrl.signal });
     lastResponseAt = Date.now();
+    tracked.done("answered");
     return res;
   } catch (e) {
     const aborted = e instanceof Error && e.name === "AbortError";
-    throw new ApiError(0, "NETWORK", aborted ? "The server took too long to respond. Please try again." : "Can't reach Movement Hub. Check your internet connection.", aborted ? "TIMEOUT" : "DROPPED");
+    tracked.done(aborted ? "timeout" : "dropped");
+    throw new ApiError(0, "NETWORK", aborted ? "The connection is very slow and the server did not answer in time. Please try again." : "Can't reach Movement Hub. Check your internet connection.", aborted ? "TIMEOUT" : "DROPPED");
   } finally {
     clearTimeout(timer);
   }
@@ -75,7 +83,7 @@ async function fetchWithTimeout(url: string, init: RequestInit) {
   const retries = (init.method ?? "GET") === "GET" ? 2 : 1;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await fetchOnce(url, init);
+      return await fetchOnce(url, init, (init.method ?? "GET") === "GET" ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS);
     } catch (e) {
       if (attempt >= retries || !(e instanceof ApiError) || e.details !== "DROPPED") throw e;
       await sleep(500 * (attempt + 1));

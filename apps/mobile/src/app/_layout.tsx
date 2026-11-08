@@ -36,8 +36,12 @@ export default function RootLayout() {
         defaultOptions: {
           queries: {
             staleTime: 30_000,
-            // Don't hammer the server on auth/validation errors; retry network blips once.
-            retry: (count, err) => count < 1 && !(err instanceof ApiError && err.status >= 400 && err.status < 500),
+            // Screens already visited stay in memory for half an hour, so going back to one is instant on any connection
+            // (it shows what it has and refreshes quietly behind it).
+            gcTime: 30 * 60_000,
+            // Don't hammer the server on auth/validation errors; a slow or flaky network gets two more tries, a little further apart.
+            retry: (count, err) => count < 2 && !(err instanceof ApiError && err.status >= 400 && err.status < 500),
+            retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 6_000),
           },
         },
       }),

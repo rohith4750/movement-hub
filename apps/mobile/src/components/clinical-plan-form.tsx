@@ -23,10 +23,9 @@ export interface PlanItemDraft {
   name: string;
   sets: string;
   reps: string;
-  minutes: string;
 }
 
-export const emptyItem = (): PlanItemDraft => ({ category: "Exercise Therapy", name: "", sets: "", reps: "", minutes: "" });
+export const emptyItem = (): PlanItemDraft => ({ category: "Exercise Therapy", name: "", sets: "", reps: "" });
 
 /** Convert editor rows to the API's item shape (blank rows dropped). */
 export const toApiItems = (items: PlanItemDraft[]) =>
@@ -37,11 +36,20 @@ export const toApiItems = (items: PlanItemDraft[]) =>
       name: i.name.trim(),
       sets: i.sets ? Number(i.sets) : undefined,
       reps: i.reps ? Number(i.reps) : undefined,
-      durationMinutes: i.minutes ? Number(i.minutes) : undefined,
       sortOrder: n,
     }));
 
 const digits = (t: string) => t.replace(/\D/g, "").slice(0, 3);
+
+/** What the plan uses when a number is left empty, and the most the server accepts (so a typed number is never refused). */
+const DEFAULT_SESSIONS = 10;
+const DEFAULT_PER_WEEK = 3;
+const MAX_SESSIONS = 200;
+const MAX_PER_WEEK = 14;
+const capped = (t: string, max: number) => {
+  const d = digits(t);
+  return d && Number(d) > max ? String(max) : d;
+};
 
 /** 0–10 pain buttons, green → amber → red. */
 export function PainScale({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) {
@@ -62,12 +70,12 @@ export function PainScale({ label, value, onChange }: { label: string; value: nu
   );
 }
 
-/** Editable list of prescribed treatments (category + name + sets / reps / minutes). */
+/** Editable list of prescribed treatments (category + name + sets / reps). Nothing in it is required. */
 export function PlanItemsEditor({ items, onChange }: { items: PlanItemDraft[]; onChange: (items: PlanItemDraft[]) => void }) {
   const update = (i: number, patch: Partial<PlanItemDraft>) => onChange(items.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   return (
     <View style={{ gap: space.md }}>
-      <Caption>Prescribed treatments *</Caption>
+      <Caption>Prescribed treatments (optional)</Caption>
       {items.map((it, i) => (
         <View key={i} style={styles.item}>
           <Row style={{ justifyContent: "space-between" }}>
@@ -79,11 +87,11 @@ export function PlanItemsEditor({ items, onChange }: { items: PlanItemDraft[]; o
             ) : null}
           </Row>
           <SelectField label="Category" value={it.category} options={PLAN_CATEGORIES.map((c) => ({ value: c, label: c }))} onChange={(v) => update(i, { category: v })} />
-          <Input placeholder="Treatment / exercise, e.g. Core strengthening" value={it.name} onChangeText={(t) => update(i, { name: t })} />
+          <Input placeholder="Treatment, e.g. Core strengthening" value={it.name} onChangeText={(t) => update(i, { name: t })} />
           <Row gap={space.sm}>
-            <Input style={{ flex: 1 }} placeholder="Sets" keyboardType="number-pad" value={it.sets} onChangeText={(t) => update(i, { sets: digits(t) })} />
-            <Input style={{ flex: 1 }} placeholder="Reps" keyboardType="number-pad" value={it.reps} onChangeText={(t) => update(i, { reps: digits(t) })} />
-            <Input style={{ flex: 1 }} placeholder="Minutes" keyboardType="number-pad" value={it.minutes} onChangeText={(t) => update(i, { minutes: digits(t) })} />
+            {/* minWidth 0: a text box otherwise keeps its natural width and pushes the second one out of the card */}
+            <Input style={{ flex: 1, minWidth: 0 }} placeholder="Sets" keyboardType="number-pad" value={it.sets} onChangeText={(t) => update(i, { sets: digits(t) })} />
+            <Input style={{ flex: 1, minWidth: 0 }} placeholder="Reps" keyboardType="number-pad" value={it.reps} onChangeText={(t) => update(i, { reps: digits(t) })} />
           </Row>
         </View>
       ))}
@@ -97,51 +105,41 @@ export interface PlanDraft {
   title: string;
   diagnosis: string;
   goals: string;
+  /** Total sessions prescribed. */
   sessions: string;
+  /** Sessions per week. */
   perWeek: string;
-  minutes: string;
   instructions: string;
 }
-export const emptyPlan = (): PlanDraft => ({ title: "", diagnosis: "", goals: "", sessions: "10", perWeek: "3", minutes: "30", instructions: "" });
+export const emptyPlan = (): PlanDraft => ({ title: "", diagnosis: "", goals: "", sessions: String(DEFAULT_SESSIONS), perWeek: String(DEFAULT_PER_WEEK), instructions: "" });
 
 export function PlanFields({ plan, onChange, showExtras }: { plan: PlanDraft; onChange: (p: PlanDraft) => void; showExtras?: boolean }) {
-  const set = (k: keyof PlanDraft) => (t: string) => onChange({ ...plan, [k]: k === "sessions" || k === "perWeek" || k === "minutes" ? digits(t) : t });
+  const set = (k: keyof PlanDraft) => (t: string) => onChange({ ...plan, [k]: k === "sessions" ? capped(t, MAX_SESSIONS) : k === "perWeek" ? capped(t, MAX_PER_WEEK) : t });
   return (
     <View style={{ gap: space.md }}>
       <Field label="Plan title" hint="Optional — uses the diagnosis if left empty"><Input value={plan.title} onChangeText={set("title")} placeholder="e.g. Lower back rehab" /></Field>
       <Field label="Diagnosis"><Input value={plan.diagnosis} onChangeText={set("diagnosis")} /></Field>
       {showExtras ? <Field label="Goals"><Input value={plan.goals} onChangeText={set("goals")} /></Field> : null}
       <Row gap={space.sm}>
-        <View style={{ flex: 1 }}><Field label="Sessions"><Input keyboardType="number-pad" value={plan.sessions} onChangeText={set("sessions")} /></Field></View>
-        <View style={{ flex: 1 }}><Field label="Per week"><Input keyboardType="number-pad" value={plan.perWeek} onChangeText={set("perWeek")} /></Field></View>
-        <View style={{ flex: 1 }}><Field label="Minutes"><Input keyboardType="number-pad" value={plan.minutes} onChangeText={set("minutes")} /></Field></View>
+        <View style={{ flex: 1 }}><Field label="Total sessions"><Input keyboardType="number-pad" value={plan.sessions} onChangeText={set("sessions")} placeholder={String(DEFAULT_SESSIONS)} /></Field></View>
+        <View style={{ flex: 1 }}><Field label="Sessions per week"><Input keyboardType="number-pad" value={plan.perWeek} onChangeText={set("perWeek")} placeholder={String(DEFAULT_PER_WEEK)} /></Field></View>
       </Row>
       {showExtras ? <Field label="Instructions"><Input multiline value={plan.instructions} onChangeText={set("instructions")} /></Field> : null}
     </View>
   );
 }
 
-/** Why a plan draft can't be saved yet (null = OK). Mirrors the API's limits. */
-export function planProblem(plan: PlanDraft, items: PlanItemDraft[]): string | null {
-  const s = Number(plan.sessions);
-  const w = Number(plan.perWeek);
-  const m = Number(plan.minutes);
-  if (!(s >= 1 && s <= 200)) return "Sessions must be 1–200";
-  if (!(w >= 1 && w <= 14)) return "Sessions per week must be 1–14";
-  if (!(m >= 10 && m <= 180)) return "Minutes per session must be 10–180";
-  if (!items.some((i) => i.name.trim())) return "Add at least one treatment";
-  return null;
-}
+/** A number from a text box: empty (or 0) means "not set", so the plan's default is used instead of blocking the save. */
+const orDefault = (t: string, fallback: number, max: number) => Math.min(Math.max(Number(t) || fallback, 1), max);
 
-/** Body for POST /treatment-plans from the drafts. */
+/** Body for POST /treatment-plans from the drafts. Nothing is required: empty numbers use the defaults, and treatments can be left out. */
 export const planBody = (plan: PlanDraft, items: PlanItemDraft[]) => ({
   title: plan.title.trim() || undefined,
   diagnosis: plan.diagnosis.trim() || undefined,
   goals: plan.goals.trim() || undefined,
   instructions: plan.instructions.trim() || undefined,
-  prescribedSessions: Number(plan.sessions),
-  frequencyPerWeek: Number(plan.perWeek),
-  sessionMinutes: Number(plan.minutes),
+  prescribedSessions: orDefault(plan.sessions, DEFAULT_SESSIONS, MAX_SESSIONS),
+  frequencyPerWeek: orDefault(plan.perWeek, DEFAULT_PER_WEEK, MAX_PER_WEEK),
   items: toApiItems(items),
 });
 
@@ -165,14 +163,15 @@ export function QuickPlanForm({ patientId, onCreated, onCancel }: { patientId: s
     { refresh: ["clinical"], onSuccess: (p) => onCreated(p.id) },
   );
 
-  const problem = planProblem(plan, items) ?? (!isPhysio && !therapistId ? "Choose the treating physiotherapist" : null);
+  // The only thing a plan can't be saved without is whose plan it is; physiotherapists are never asked (it is always them).
+  const problem = !isPhysio && !therapistId ? "Choose the treating physiotherapist" : null;
 
   return (
     <View style={{ gap: space.md }}>
       <PlanFields plan={plan} onChange={setPlan} />
       {!isPhysio ? (
         <SelectField
-          label="Treating physiotherapist *"
+          label="Treating physiotherapist"
           value={therapistId}
           onChange={setTherapistId}
           placeholder={therapists.isLoading ? "Loading…" : "Select"}

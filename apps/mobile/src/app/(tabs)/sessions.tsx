@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { Badge, BrandHeader, Chips, Empty, ErrorBox, Loading, Muted, Row, Screen, Text } from "@/components/ui";
+import { Badge, BrandHeader, Chips, Empty, ErrorBox, Muted, Row, Screen, SkeletonCards, Text } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { fullName, time } from "@/lib/format";
 import { useTodaySessions } from "@/lib/queries";
@@ -33,7 +33,7 @@ export default function Sessions() {
         />
       ) : null}
       {q.isLoading ? (
-        <Loading />
+        <SkeletonCards />
       ) : q.error ? (
         <ErrorBox error={q.error} onRetry={() => q.refetch()} />
       ) : list.length === 0 ? (

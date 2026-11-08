@@ -8,9 +8,8 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
 import { fullName, time } from "@/lib/format";
-import { qk } from "@/lib/query-keys";
+import { sessionOptions } from "@/lib/queries";
 import { useAction } from "@/lib/refresh";
-import type { TherapySession } from "@/lib/types";
 import { colors, radius, space } from "@/theme";
 
 type Exercise = { name: string; sets: string; reps: string };
@@ -19,7 +18,7 @@ type Exercise = { name: string; sets: string; reps: string };
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const user = useAuth((s) => s.user);
-  const q = useQuery({ queryKey: qk.session(id), queryFn: () => api.get<TherapySession>(`/therapy-sessions/${id}`), enabled: !!id });
+  const q = useQuery({ ...sessionOptions(id), enabled: !!id });
   const s = q.data;
 
   // Form state (null = use the value already saved on the session)
@@ -83,7 +82,9 @@ export default function SessionScreen() {
       <Input multiline value={coverReason} onChangeText={setCoverReason} placeholder="e.g. Assigned physio is on leave / running late" />
     </Field>
   ) : null;
-  const back = () => (router.canGoBack() ? router.back() : router.replace("/sessions"));
+  // Opened without history (e.g. after a restart): physiotherapists land on My day, everyone else on the sessions list.
+  const homeRoute = user && user.role === "PHYSIOTHERAPIST" ? "/" : "/sessions";
+  const back = () => (router.canGoBack() ? router.back() : router.replace(homeRoute));
 
   // The one main action for the session's state sits in the pinned footer.
   const sessionFooter =
@@ -122,7 +123,7 @@ export default function SessionScreen() {
               {s.treatmentPlan.items.map((i) => (
                 <Row key={i.id} style={{ justifyContent: "space-between" }}>
                   <Text style={{ flex: 1 }}>{i.name}</Text>
-                  <Muted style={{ fontSize: 12 }}>{[i.category, i.sets && `${i.sets}×${i.reps ?? ""}`, i.durationMinutes && `${i.durationMinutes} min`].filter(Boolean).join(" · ")}</Muted>
+                  <Muted style={{ fontSize: 12 }}>{[i.category, i.sets && `${i.sets}×${i.reps ?? ""}`].filter(Boolean).join(" · ")}</Muted>
                 </Row>
               ))}
             </Card>
@@ -200,25 +201,33 @@ export default function SessionScreen() {
   );
 }
 
+/** 0–10 in two even rows (0–5 and 6–10) of big buttons; eleven in one row wrapped and left "9, 10" alone on a second line. */
 function PainScale({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) {
+  const rows = [[0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10]];
   return (
-    <Field label={`${label}: ${value}/10`}>
+    <Field label={`${label}: ${value}/10`} hint="0 = no pain · 10 = worst pain">
       <View style={styles.scale}>
-        {Array.from({ length: 11 }, (_, n) => {
-          const on = n === value;
-          const hue = n <= 3 ? colors.success : n <= 6 ? colors.warning : colors.danger;
-          return (
-            <Pressable key={n} onPress={() => onChange(n)} accessibilityLabel={`Pain ${n}`} style={[styles.scaleBtn, on && { backgroundColor: hue, borderColor: hue }]}>
-              <Text weight="semibold" style={{ fontSize: 13, color: on ? colors.white : colors.navy700 }}>{n}</Text>
-            </Pressable>
-          );
-        })}
+        {rows.map((row, r) => (
+          <View key={r} style={styles.scaleRow}>
+            {row.map((n) => {
+              const on = n === value;
+              const hue = n <= 3 ? colors.success : n <= 6 ? colors.warning : colors.danger;
+              return (
+                <Pressable key={n} onPress={() => onChange(n)} accessibilityLabel={`Pain ${n}`} style={[styles.scaleBtn, on && { backgroundColor: hue, borderColor: hue }]}>
+                  <Text weight="bold" style={{ fontSize: 16, color: on ? colors.white : colors.navy700 }}>{n}</Text>
+                </Pressable>
+              );
+            })}
+            {row.length < 6 ? <View style={{ flex: 1 }} /> : null}
+          </View>
+        ))}
       </View>
     </Field>
   );
 }
 
 const styles = StyleSheet.create({
-  scale: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  scaleBtn: { width: 34, height: 34, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
+  scale: { gap: 6 },
+  scaleRow: { flexDirection: "row", gap: 6 },
+  scaleBtn: { flex: 1, height: 46, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
 });

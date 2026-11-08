@@ -1,8 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
-import { Children, cloneElement, isValidElement, useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
+import { Children, cloneElement, isValidElement, useEffect, useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -17,6 +18,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets, type Edge } from "react-native-safe-area-context";
+import { useConnection } from "@/lib/connection";
 import { notifyEdit } from "@/lib/form-activity";
 import { label as labelOf } from "@/lib/format";
 import { colors, compact, control, fonts, fs, radius, shadow, space, statusColors } from "@/theme";
@@ -81,6 +83,7 @@ export function Screen({
       {/* The status-bar area is navy, continuing into the navy header band of each screen. */}
       {top > 0 ? <View style={{ height: top, backgroundColor: colors.navy900 }} /> : null}
       {pinned ? cloneElement(pinned, { fixed: true }) : null}
+      <ConnectionStrip />
       {scroll ? (
         <ScrollView
           contentContainerStyle={inner}
@@ -345,6 +348,58 @@ export function Badge({ status, text }: { status: string; text?: string }) {
   );
 }
 
+/**
+ * Thin notice under the header while the connection is weak. It appears only after a request has waited 5 seconds
+ * (so a normal load never flashes it) and tells the person the app is still working, not frozen.
+ */
+function ConnectionStrip() {
+  const state = useConnection((s) => s.state);
+  if (state === "ok") return null;
+  const offline = state === "offline";
+  return (
+    <View accessibilityRole="alert" style={[styles.strip, { backgroundColor: offline ? colors.dangerBg : colors.warningBg }]}>
+      {offline ? <Ionicons name="cloud-offline-outline" size={16} color={colors.danger} /> : <ActivityIndicator size="small" color={colors.warning} />}
+      <Text weight="semibold" style={{ flex: 1, fontSize: 12, color: offline ? colors.danger : colors.warning }}>
+        {offline ? "No internet. Check your connection." : "Slow connection. Still loading, please wait."}
+      </Text>
+    </View>
+  );
+}
+
+/** A soft pulsing block that stands in for content while it loads. */
+export function Skeleton({ height = 16, width = "100%", style }: { height?: number; width?: ViewStyle["width"]; style?: StyleProp<ViewStyle> }) {
+  const [pulse] = useState(() => new Animated.Value(0.5));
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 750, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.5, duration: 750, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  return <Animated.View style={[{ height, width, borderRadius: 8, backgroundColor: colors.navy100, opacity: pulse }, style]} />;
+}
+
+/**
+ * Card-shaped placeholders for a list that is loading. The screen shows its final shape straight away
+ * and fills in, which feels much quicker than a lone spinner on a slow connection.
+ */
+export function SkeletonCards({ count = 3 }: { count?: number }) {
+  return (
+    <View accessibilityLabel="Loading" style={{ gap: SCREEN_GAP }}>
+      {Array.from({ length: count }, (_, i) => (
+        <View key={i} style={[styles.card, { gap: space.md }]}>
+          <Skeleton height={14} width="32%" />
+          <Skeleton height={18} width="72%" />
+          <Skeleton height={14} width="48%" />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function Loading({ label }: { label?: string }) {
   return (
     <View style={{ padding: space.xl, alignItems: "center", gap: space.sm }}>
@@ -449,6 +504,7 @@ const styles = StyleSheet.create({
   segmentItem: { flexGrow: 1, flexShrink: 1, flexBasis: "auto", paddingVertical: compact ? 9 : 10, paddingHorizontal: compact ? 8 : 6, borderRadius: radius.md - 1, alignItems: "center", justifyContent: "center" },
   segmentOn: { backgroundColor: colors.navy800 },
   badge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: compact ? 8 : 10, paddingVertical: compact ? 3 : 4, borderRadius: radius.pill, alignSelf: "flex-start" },
+  strip: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.lg, paddingVertical: 6 },
   errorBox: { backgroundColor: colors.dangerBg, borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: "rgba(225,29,72,0.25)" },
   emptyIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.gold100, alignItems: "center", justifyContent: "center" },
 });

@@ -1,15 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { CategoryBadge, VisitLine } from "@/components/patient-visits";
-import { qk } from "@/lib/query-keys";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { Avatar, BrandHeader, Button, Card, Chips, Empty, ErrorBox, Input, Loading, Muted, Row, Screen, Text } from "@/components/ui";
+import { Avatar, BrandHeader, Button, Card, Chips, Empty, ErrorBox, Input, Muted, Row, Screen, SkeletonCards, Text } from "@/components/ui";
 import { useAuth, useHasRole } from "@/lib/auth";
-import { api } from "@/lib/api";
 import { ageFrom, fullName, label } from "@/lib/format";
-import type { PatientListItem } from "@/lib/types";
+import { patientListOptions } from "@/lib/queries";
 import { colors, compact, radius, space } from "@/theme";
 
 /** Search patients by name, phone or patient code. */
@@ -17,17 +15,19 @@ export default function Patients() {
   const canAdd = useHasRole("ADMIN", "RECEPTIONIST"); // Super Admin + physiotherapists (who run the front desk)
   const isPhysio = useAuth((s) => s.user?.role === "PHYSIOTHERAPIST");
   const [scope, setScope] = useState<"mine" | "all">("mine");
-  const mine = isPhysio && scope === "mine";
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 300);
     return () => clearTimeout(t);
   }, [search]);
+  // A name that is typed in is searched among ALL patients: looking for someone must never come back empty
+  // just because "My patients" was selected.
+  const searching = debounced.length > 0;
+  const mine = isPhysio && scope === "mine" && !searching;
 
   const q = useQuery({
-    queryKey: qk.patients.list("tab", { search: debounced, mine }),
-    queryFn: () => api.page<PatientListItem>("/patients", { search: debounced || undefined, limit: 40, sort: "createdAt:desc", mine: mine ? "true" : undefined }),
+    ...patientListOptions(debounced, mine),
     placeholderData: keepPreviousData, // keep the list on screen while a new search loads
   });
 
@@ -37,29 +37,33 @@ export default function Patients() {
       onRefresh={() => q.refetch()}
       footer={canAdd ? <Button title="Add patient" variant="gold" icon="person-add-outline" onPress={() => router.push("/patient/new")} /> : undefined}
     >
-      <BrandHeader title="Patients" subtitle={q.data ? `${q.data.meta.total} registered` : "Search by name, phone or code"} />
-      {isPhysio ? (
-        <Chips<"mine" | "all"> value={scope} onChange={setScope} options={[{ value: "mine", label: "My patients" }, { value: "all", label: "All patients" }]} />
-      ) : null}
+      <BrandHeader title="Patients" subtitle={q.data ? `${q.data.meta.total} ${searching ? "found" : "registered"}` : "Search by name, phone or code"} />
       <Row style={styles.search}>
-        <Ionicons name="search" size={18} color={colors.muted} />
-        <Input value={search} onChangeText={setSearch} placeholder="Name, phone or MH-P code" autoCorrect={false} style={{ flex: 1, borderWidth: 0, paddingHorizontal: 0, backgroundColor: "transparent" }} returnKeyType="search" />
+        <Ionicons name="search" size={20} color={colors.gold700} />
+        <Input value={search} onChangeText={setSearch} placeholder="Type a name or phone number" autoCorrect={false} style={{ flex: 1, borderWidth: 0, paddingHorizontal: 0, backgroundColor: "transparent" }} returnKeyType="search" />
         {search ? (
           <Pressable onPress={() => setSearch("")} hitSlop={8} accessibilityLabel="Clear search">
             <Ionicons name="close-circle" size={18} color={colors.muted} />
           </Pressable>
         ) : null}
       </Row>
+      {isPhysio ? (
+        searching ? (
+          <Muted style={{ fontSize: 12 }}>Searching all patients</Muted>
+        ) : (
+          <Chips<"mine" | "all"> value={scope} onChange={setScope} options={[{ value: "mine", label: "My patients" }, { value: "all", label: "All patients" }]} />
+        )
+      ) : null}
 
       {q.isLoading ? (
-        <Loading />
+        <SkeletonCards />
       ) : q.error ? (
         <ErrorBox error={q.error} onRetry={() => q.refetch()} />
       ) : !q.data?.data.length ? (
         <Empty
           icon="people-outline"
           title="No patients found"
-          message={search ? "Try a different name or number." : mine ? "No regular patients yet — switch to All patients, or set yourself as their regular physio." : undefined}
+          message={searching ? "Try a different name or number." : mine ? "No regular patients yet — switch to All patients, or set yourself as their regular physio." : undefined}
           action={canAdd ? <Button title="Add a new patient" variant="ghost" small icon="person-add-outline" onPress={() => router.push("/patient/new")} /> : undefined}
         />
       ) : (

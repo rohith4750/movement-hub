@@ -16,6 +16,7 @@ import type {
   OutcomeAnalytics,
   PatientAnalytics,
   PatientDetail,
+  PatientListItem,
   PlannerDay,
   Therapist,
   TherapySession,
@@ -42,15 +43,24 @@ export function useDashboard() {
 /* ─────────────── Front desk ─────────────── */
 
 /** Appointments on a day. Defaults to whole clinic; `mine = true` limits a physio to their own. */
-export function useAppointmentsOn(date: string, mine = false) {
+export function useAppointmentsOn(date: string, mine = false, pollMs?: number) {
   const myId = useMyTherapistId();
   const therapistId = mine ? myId : undefined;
   return useQuery({
-    queryKey: qk.appointments.day(date, therapistId),
-    queryFn: () => api.page<Appointment>("/appointments", { date, therapistId, limit: 100 }),
+    ...appointmentsOnOptions(date, therapistId),
     select: (r) => r.data,
+    refetchInterval: pollMs,
   });
 }
+
+/**
+ * Key + fetch for one day's appointments. The screen's hook and the "load it ahead of time" calls (queryClient.prefetchQuery)
+ * both use this, so data loaded ahead is exactly what the screen then reads from the cache.
+ */
+export const appointmentsOnOptions = (date: string, therapistId?: string) => ({
+  queryKey: qk.appointments.day(date, therapistId),
+  queryFn: () => api.page<Appointment>("/appointments", { date, therapistId, limit: 100 }),
+});
 
 export function useAppointment(id: string | undefined) {
   return useQuery({ queryKey: qk.appointment(id ?? ""), queryFn: () => api.get<Appointment>(`/appointments/${id}`), enabled: !!id });
@@ -68,6 +78,8 @@ export function usePlanner(date: string, therapistId?: string, include: string[]
   });
 }
 
+export const sessionOptions = (id: string) => ({ queryKey: qk.session(id), queryFn: () => api.get<TherapySession>(`/therapy-sessions/${id}`) });
+
 export function useTodaySessions() {
   const user = useAuth((s) => s.user);
   return useQuery({
@@ -80,9 +92,17 @@ export function useTodaySessions() {
 
 /* ─────────────── Patients & clinical ─────────────── */
 
+export const patientOptions = (id: string) => ({ queryKey: qk.patient(id), queryFn: () => api.get<PatientDetail>(`/patients/${id}`) });
+
 export function usePatient(id: string | undefined) {
-  return useQuery({ queryKey: qk.patient(id ?? ""), queryFn: () => api.get<PatientDetail>(`/patients/${id}`), enabled: !!id });
+  return useQuery({ ...patientOptions(id ?? ""), enabled: !!id });
 }
+
+/** The Patients tab's list. `mine` = a physio's own patients; a typed search always looks at everyone (see the tab). */
+export const patientListOptions = (search: string, mine: boolean) => ({
+  queryKey: qk.patients.list("tab", { search, mine }),
+  queryFn: () => api.page<PatientListItem>("/patients", { search: search || undefined, limit: 40, sort: "createdAt:desc", mine: mine ? "true" : undefined }),
+});
 
 export function useActivePlans(patientId: string | undefined) {
   return useQuery({

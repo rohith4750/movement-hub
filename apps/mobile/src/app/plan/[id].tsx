@@ -145,7 +145,7 @@ export default function PlanScreen() {
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
             <StatTile label="Done" value={`${p.progress.completedSessions}/${p.prescribedSessions}`} />
             <StatTile label="Booked" value={p.progress.upcomingSessions} />
-            <StatTile label="Frequency" value={`${p.frequencyPerWeek}×/wk`} hint={`${p.sessionMinutes} min each`} />
+            <StatTile label="Per week" value={p.frequencyPerWeek} hint="sessions a week" />
             <StatTile label="Package left" value={p.patientPackages.find((x) => x.status === "ACTIVE")?.remainingSessions ?? "—"} />
           </View>
 
@@ -220,7 +220,7 @@ export default function PlanScreen() {
                     {priceOf.has(i.category) ? <Text weight="semibold" style={{ fontSize: 13, color: colors.gold700 }}>{inr(priceOf.get(i.category))}</Text> : null}
                   </Row>
                   <Muted style={{ fontSize: 12 }}>
-                    {[i.category, i.sets && `${i.sets} sets`, i.reps && `${i.reps} reps`, i.durationMinutes && `${i.durationMinutes} min`].filter(Boolean).join(" · ")}
+                    {[i.category, i.sets && `${i.sets} sets`, i.reps && `${i.reps} reps`].filter(Boolean).join(" · ")}
                   </Muted>
                 </View>
               ))

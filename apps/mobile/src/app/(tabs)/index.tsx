@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import type { ComponentProps } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { AppointmentCard } from "@/components/appointment-card";
+import { TherapistHome } from "@/components/therapist-home";
 import { ActionTile, BrandHeader, Card, Empty, ErrorBox, H2, Loading, Muted, ProgressBar, Row, Screen, Text, TileGrid } from "@/components/ui";
 import { hasRole, useAuth } from "@/lib/auth";
 import { date, greeting, inr, label, today } from "@/lib/format";
@@ -11,7 +12,13 @@ import { colors, compact, space } from "@/theme";
 
 const ACTIVE = ["SCHEDULED", "CONFIRMED", "CHECKED_IN", "IN_PROGRESS"];
 
+/** Physiotherapists get a plain "My day" (their patients, one button each); everyone else gets the clinic overview. */
 export default function TodayScreen() {
+  const isPhysio = useAuth((s) => s.user?.role === "PHYSIOTHERAPIST");
+  return isPhysio ? <TherapistHome /> : <ClinicToday />;
+}
+
+function ClinicToday() {
   const user = useAuth((s) => s.user);
   const canBook = hasRole(user, "ADMIN", "RECEPTIONIST");
   const canSeeMoney = hasRole(user, "ADMIN", "ACCOUNTANT");

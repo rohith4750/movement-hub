@@ -4,7 +4,7 @@
  */
 import { useState } from "react";
 import { Switch, View } from "react-native";
-import { emptyItem, emptyPlan, planBody, PlanFields, PlanItemsEditor, planProblem, toApiItems, type PlanDraft, type PlanItemDraft } from "@/components/clinical-plan-form";
+import { emptyItem, emptyPlan, planBody, PlanFields, PlanItemsEditor, toApiItems, type PlanDraft, type PlanItemDraft } from "@/components/clinical-plan-form";
 import { SelectField } from "@/components/form";
 import { Button, Card, ErrorBox, Muted, Row, Text } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -28,14 +28,13 @@ export function PlanEditor({ plan, patientId, onSaved }: { plan?: TreatmentPlan;
           goals: plan.goals ?? "",
           sessions: String(plan.prescribedSessions),
           perWeek: String(plan.frequencyPerWeek),
-          minutes: String(plan.sessionMinutes),
           instructions: plan.instructions ?? "",
         }
       : emptyPlan(),
   );
   const [items, setItems] = useState<PlanItemDraft[]>(() =>
     plan?.items.length
-      ? plan.items.map((i) => ({ id: i.id, category: i.category, name: i.name, sets: i.sets?.toString() ?? "", reps: i.reps?.toString() ?? "", minutes: i.durationMinutes?.toString() ?? "" }))
+      ? plan.items.map((i) => ({ id: i.id, category: i.category, name: i.name, sets: i.sets?.toString() ?? "", reps: i.reps?.toString() ?? "" }))
       : [emptyItem()],
   );
   const [therapistId, setTherapistId] = useState(plan?.therapist.id ?? user?.therapistId ?? "");
@@ -67,19 +66,24 @@ export function PlanEditor({ plan, patientId, onSaved }: { plan?: TreatmentPlan;
     { refresh: ["clinical"], onSuccess: (id) => onSaved(id) },
   );
 
-  const problem = !editing && !patientId ? "Choose the patient" : planProblem(draft, items) ?? (!therapistId ? "Choose the treating physiotherapist" : null);
+  // Nothing about the plan itself is required any more. Only who it is for (the patient, the physiotherapist) has to be known;
+  // a physiotherapist is never asked, because the plan is theirs.
+  const isPhysio = !!user && user.role === "PHYSIOTHERAPIST";
+  const problem = !editing && !patientId ? "Choose the patient" : !therapistId ? "Choose the treating physiotherapist" : null;
 
   return (
     <View style={{ gap: space.md }}>
       <Card style={{ gap: space.md }}>
         <PlanFields plan={draft} onChange={setDraft} showExtras />
-        <SelectField
-          label="Treating physiotherapist *"
-          value={therapistId}
-          onChange={setTherapistId}
-          placeholder={therapists.isLoading ? "Loading…" : "Select"}
-          options={(therapists.data ?? []).map((t) => ({ value: t.id, label: t.user.name }))}
-        />
+        {!isPhysio ? (
+          <SelectField
+            label="Treating physiotherapist"
+            value={therapistId}
+            onChange={setTherapistId}
+            placeholder={therapists.isLoading ? "Loading…" : "Select"}
+            options={(therapists.data ?? []).map((t) => ({ value: t.id, label: t.user.name }))}
+          />
+        ) : null}
       </Card>
       <Card>
         <PlanItemsEditor items={items} onChange={setItems} />

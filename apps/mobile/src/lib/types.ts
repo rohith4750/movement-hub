@@ -124,7 +124,6 @@ export interface TreatmentPlan {
   status: string;
   prescribedSessions: number;
   frequencyPerWeek: number;
-  sessionMinutes: number;
   instructions: string | null;
   completedAt?: string | null;
   outcome?: TreatmentOutcome | null;
@@ -133,7 +132,7 @@ export interface TreatmentPlan {
   homeProgram?: string | null;
   createdAt: string;
   therapist: { id: string; user: { name: string } };
-  items: { id: string; category: string; name: string; sets: number | null; reps: number | null; durationMinutes: number | null }[];
+  items: { id: string; category: string; name: string; sets: number | null; reps: number | null }[];
 }
 
 export interface PlanDetail extends TreatmentPlan {
@@ -155,9 +154,9 @@ export interface TherapySession {
   patient: { id: string; patientCode: string; firstName: string; lastName: string | null };
   therapist: { id: string; user: { name: string } };
   appointment: { id: string; appointmentNo: string; startAt: string; endAt: string; status: string };
-  treatmentPlan: { title: string; prescribedSessions: number; items: { id: string; category: string; name: string; sets: number | null; reps: number | null; durationMinutes: number | null }[] } | null;
+  treatmentPlan: { title: string; prescribedSessions: number; items: { id: string; category: string; name: string; sets: number | null; reps: number | null }[] } | null;
   patientPackage: { id: string; remainingSessions: number; package: { name: string } } | null;
-  exercises: { id: string; name: string; sets: number | null; reps: number | null; durationMinutes: number | null }[];
+  exercises: { id: string; name: string; sets: number | null; reps: number | null }[];
 }
 
 export interface PatientPackage {

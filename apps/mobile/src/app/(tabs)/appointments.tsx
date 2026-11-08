@@ -2,7 +2,7 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { AppointmentCard } from "@/components/appointment-card";
-import { BrandHeader, Button, Chips, Empty, ErrorBox, Loading, Muted, Row, Screen, Text } from "@/components/ui";
+import { BrandHeader, Button, Chips, Empty, ErrorBox, Muted, Row, Screen, SkeletonCards, Text } from "@/components/ui";
 import { hasRole, useAuth } from "@/lib/auth";
 import { addDays, dayParts, today } from "@/lib/format";
 import { useAppointmentsOn } from "@/lib/queries";
@@ -80,7 +80,7 @@ export default function Visits() {
       {q.data ? <Muted style={{ fontSize: 12 }}>{list.length} of {q.data.length} visits</Muted> : null}
 
       {q.isLoading ? (
-        <Loading />
+        <SkeletonCards />
       ) : q.error ? (
         <ErrorBox error={q.error} onRetry={() => q.refetch()} />
       ) : list.length === 0 ? (
