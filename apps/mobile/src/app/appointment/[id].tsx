@@ -8,14 +8,18 @@ import { ActionTile, Avatar, Badge, Button, Card, Chips, ErrorBox, Field, H2, In
 import { api } from "@/lib/api";
 import { hasRole, useAuth } from "@/lib/auth";
 import { confirm } from "@/lib/confirm";
-import { date, dateTime, fullName, label, time } from "@/lib/format";
+import { date, dateTime, fullName, inr, label, time } from "@/lib/format";
 import { useActivePlans, useConsultation, useConsultationHistory } from "@/lib/queries";
 import { qk } from "@/lib/query-keys";
 import { forget, refresh, useAction } from "@/lib/refresh";
 import type { Appointment, AppointmentType } from "@/lib/types";
 import { colors, radius, space } from "@/theme";
 
-type Detail = Appointment & { history: { id: string; toStatus: string; fromStatus: string | null; note: string | null; createdAt: string }[] };
+type Detail = Appointment & {
+  history: { id: string; toStatus: string; fromStatus: string | null; note: string | null; createdAt: string }[];
+  /** The bill(s) this visit is on (staff only). One row per bill line, so the same bill can repeat. */
+  invoiceItems?: { invoice: { id: string; invoiceNo: string; status: string; totalAmount: string; dueAmount: string } }[];
+};
 
 const EDIT_TYPES: { value: AppointmentType; label: string }[] = [
   { value: "INITIAL_CONSULTATION", label: "First consultation" },
@@ -45,6 +49,10 @@ export default function AppointmentDetail() {
   const canDelete = isAdmin;
   const canEditBooking = isFrontDesk && open && a?.type !== "HOME_VISIT" && !a?.consultation;
   const canEditNotes = isFrontDesk || isTreating;
+
+  // The bill drafted for this visit when it was booked (one entry per bill, not per line).
+  const canSeeBills = hasRole(user, "ADMIN", "RECEPTIONIST", "ACCOUNTANT");
+  const bills = canSeeBills && a && a.invoiceItems ? Array.from(new Map(a.invoiceItems.map((x) => [x.invoice.id, x.invoice])).values()) : [];
 
   /* ── consultation notes ── */
   const consult = useConsultation(a?.consultation && canClinical ? a.consultation.id : undefined);
@@ -225,6 +233,11 @@ export default function AppointmentDetail() {
               <Text>{a.notes || "—"}</Text>
             </View>
           </Card>
+
+          {/* The bill for this visit: drafted automatically at booking, for the front desk to check, edit and issue */}
+          {bills.map((b) => (
+            <BillCard key={b.id} bill={b} />
+          ))}
 
           <ErrorBox error={act.error} />
 
@@ -417,6 +430,32 @@ export default function AppointmentDetail() {
         </>
       ) : null}
     </Screen>
+  );
+}
+
+/** A bill this visit is on: its number, status and amount, with a button to open (and edit) it. */
+function BillCard({ bill }: { bill: { id: string; invoiceNo: string; status: string; totalAmount: string; dueAmount: string } }) {
+  const draft = bill.status === "DRAFT";
+  const owing = !draft && Number(bill.dueAmount) > 0 && ["ISSUED", "PARTIALLY_PAID"].includes(bill.status);
+  return (
+    <Card gold={draft}>
+      <Row style={{ justifyContent: "space-between" }}>
+        <H2>Bill</H2>
+        <Badge status={bill.status} />
+      </Row>
+      <Row style={{ justifyContent: "space-between" }}>
+        <Muted style={{ fontSize: 12 }}>{bill.invoiceNo}</Muted>
+        <Text weight="bold" style={{ fontSize: 18, color: colors.navy700 }}>{inr(bill.totalAmount)}</Text>
+      </Row>
+      {draft ? <Muted style={{ fontSize: 12 }}>Drafted when this visit was booked. Check the amount, edit it if needed, then issue it.</Muted> : null}
+      {owing ? <Muted style={{ fontSize: 12, color: colors.danger }}>Due {inr(bill.dueAmount)}</Muted> : null}
+      <Button
+        title={draft ? "Check & edit bill" : "Open bill"}
+        variant={draft ? "gold" : "ghost"}
+        icon={draft ? "create-outline" : "receipt-outline"}
+        onPress={() => router.push({ pathname: "/invoice/[id]", params: { id: bill.id } })}
+      />
+    </Card>
   );
 }
 

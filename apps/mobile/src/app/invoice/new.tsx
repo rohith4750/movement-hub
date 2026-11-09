@@ -1,16 +1,17 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { goBack, RequireRole, SectionTitle, SelectField, Sheet, type Option } from "@/components/form";
 import { Badge, Button, Card, Divider, ErrorBox, Field, Input, KeyValue, Loading, Muted, Row, Screen, Text, TopBar } from "@/components/ui";
 import { api } from "@/lib/api";
-import { fullName, inr } from "@/lib/format";
+import { fullName, inr, label } from "@/lib/format";
 import { qk } from "@/lib/query-keys";
 import { useAction } from "@/lib/refresh";
 import { useAuth } from "@/lib/auth";
 import { useActivePlans, useTherapists, useTreatmentPrices } from "@/lib/queries";
+import type { InvoiceDetail } from "@/lib/types";
 import { colors, radius, space } from "@/theme";
 
 type ItemType = "CONSULTATION" | "THERAPY_SESSION" | "PACKAGE" | "HOME_VISIT" | "TRAVEL_CHARGE" | "OTHER";
@@ -20,6 +21,10 @@ interface Line {
   description: string;
   quantity: string;
   unitPrice: string;
+  /** Carried through unchanged when editing a bill: a per-line discount and the visit / package the line belongs to. */
+  discount: number;
+  appointmentId?: string;
+  patientPackageId?: string;
 }
 interface PatientRow {
   id: string;
@@ -51,33 +56,73 @@ const defaultsFor = (t: ItemType) => TYPES.find((x) => x.value === t)!;
 const DEFAULT_DESCRIPTIONS = new Set(TYPES.map((t) => t.label));
 
 let lineSeq = 1;
-const newLine = (type: ItemType = "CONSULTATION"): Line => ({ key: lineSeq++, type, description: defaultsFor(type).label, quantity: "1", unitPrice: String(defaultsFor(type).price) });
+const newLine = (type: ItemType = "CONSULTATION"): Line => ({ key: lineSeq++, type, description: defaultsFor(type).label, quantity: "1", unitPrice: String(defaultsFor(type).price), discount: 0 });
+const lineFrom = (i: InvoiceDetail["items"][number]): Line => ({
+  key: lineSeq++,
+  type: i.type as ItemType,
+  description: i.description,
+  quantity: String(i.quantity),
+  unitPrice: String(Number(i.unitPrice)),
+  discount: Number(i.discount),
+  appointmentId: i.appointmentId ?? undefined,
+  patientPackageId: i.patientPackageId ?? undefined,
+});
 
-/** New invoice: patient → line items → discount → live GST preview → save draft or issue. */
+/**
+ * New invoice: patient → line items → discount → live GST preview → save draft or issue.
+ * With `?edit=<invoice id>` the same form opens a DRAFT bill (for example the one drafted automatically
+ * when a visit was booked), so staff can change the lines, discount and notes before issuing it.
+ */
 export default function NewInvoice() {
+  const { edit } = useLocalSearchParams<{ edit?: string }>();
   return (
-    <RequireRole roles={["ACCOUNTANT", "RECEPTIONIST", "ADMIN"]} title="New invoice">
-      <NewInvoiceForm />
+    <RequireRole roles={["ACCOUNTANT", "RECEPTIONIST", "ADMIN"]} title={edit ? "Edit bill" : "New invoice"}>
+      {edit ? <EditDraft id={edit} /> : <NewInvoiceForm />}
     </RequireRole>
   );
 }
 
-function NewInvoiceForm() {
+/** Loads the draft, then shows the form filled in. Bills that are already issued can't be edited. */
+function EditDraft({ id }: { id: string }) {
+  const q = useQuery({ queryKey: qk.invoice(id), queryFn: () => api.get<InvoiceDetail>(`/invoices/${id}`) });
+  const back = () => goBack({ pathname: "/invoice/[id]", params: { id } });
+  if (q.data && q.data.status === "DRAFT") return <NewInvoiceForm initial={q.data} />;
+  return (
+    <Screen edges={["top", "bottom"]}>
+      <TopBar title="Edit bill" onBack={back} />
+      {q.isLoading ? (
+        <Loading />
+      ) : q.error ? (
+        <ErrorBox error={q.error} onRetry={() => q.refetch()} />
+      ) : q.data ? (
+        <>
+          <Muted>Only draft bills can be edited. {q.data.invoiceNo} is {label(q.data.status).toLowerCase()}.</Muted>
+          <Button title="Open bill" onPress={back} />
+        </>
+      ) : null}
+    </Screen>
+  );
+}
+
+function NewInvoiceForm({ initial }: { initial?: InvoiceDetail }) {
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 300);
     return () => clearTimeout(t);
   }, [search]);
-  const [patient, setPatient] = useState<PatientRow | null>(null);
-  const [lines, setLines] = useState<Line[]>(() => [newLine()]);
-  const [discount, setDiscount] = useState("");
-  const [discountReason, setDiscountReason] = useState("");
-  const [notes, setNotes] = useState("");
+  // Editing a draft starts from what is saved; a new invoice starts empty.
+  const [patient, setPatient] = useState<PatientRow | null>(() => (initial ? { ...initial.patient } : null));
+  const [lines, setLines] = useState<Line[]>(() => (initial ? initial.items.map(lineFrom) : [newLine()]));
+  const [discount, setDiscount] = useState(() => (initial && Number(initial.discountAmount) > 0 ? String(Number(initial.discountAmount)) : ""));
+  const [discountReason, setDiscountReason] = useState(() => (initial ? initial.discountReason ?? "" : ""));
+  const [notes, setNotes] = useState(() => (initial ? initial.notes ?? "" : ""));
   // Whose bill this is. A physio always bills for themselves; the Super Admin can choose
   // ("" = automatic: the physio of the billed visit, else the patient's regular physio).
   const isPhysio = useAuth((s) => s.user?.role === "PHYSIOTHERAPIST");
-  const [billFor, setBillFor] = useState("");
+  const [billFor, setBillFor] = useState(() => (initial ? initial.therapistId ?? "" : ""));
+  const editId = initial ? initial.id : "";
+  const interState = !!initial && Number(initial.igstAmount) > 0; // keep IGST vs CGST + SGST as it was
   const therapists = useTherapists({ enabled: !isPhysio });
 
   // Billing by treatment: the clinic's price list, and the priced treatments in this patient's active plan.
@@ -95,11 +140,26 @@ function NewInvoiceForm() {
     enabled: !patient,
   });
 
-  const items = lines.map((l) => ({ type: l.type, description: l.description.trim(), quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) }));
+  const items = lines.map((l) => ({
+    type: l.type,
+    description: l.description.trim(),
+    quantity: Number(l.quantity),
+    unitPrice: Number(l.unitPrice),
+    ...(l.discount ? { discount: l.discount } : {}),
+    ...(l.appointmentId ? { appointmentId: l.appointmentId } : {}),
+    ...(l.patientPackageId ? { patientPackageId: l.patientPackageId } : {}),
+  }));
   const linesOk = items.length > 0 && items.every((i) => i.description.length >= 2 && Number.isInteger(i.quantity) && i.quantity >= 1 && Number.isFinite(i.unitPrice) && i.unitPrice >= 0);
   const discountAmount = discount ? Number(discount) : 0;
   const discountOk = Number.isFinite(discountAmount) && discountAmount >= 0;
-  const body = { patientId: patient?.id, items, discountAmount, discountReason: discountReason.trim() || undefined, notes: notes.trim() || undefined };
+  const body = {
+    patientId: patient?.id,
+    items,
+    discountAmount,
+    discountReason: discountReason.trim() || undefined,
+    notes: notes.trim() || undefined,
+    ...(interState ? { interState: true } : {}),
+  };
 
   const preview = useQuery({
     queryKey: qk.invoicePreview(body),
@@ -107,14 +167,33 @@ function NewInvoiceForm() {
     enabled: !!patient && linesOk && discountOk,
   });
 
-  const save = useAction((issue: boolean) => api.post<{ id: string }>("/invoices", { ...body, issue, therapistId: isPhysio ? undefined : billFor || undefined }), {
-    refresh: ["billing"],
-    onSuccess: (inv) => router.replace({ pathname: "/invoice/[id]", params: { id: inv.id } }),
-  });
+  const save = useAction(
+    async (issue: boolean) => {
+      if (editId) {
+        // Same invoice, same number: the lines and totals are replaced. Empty text clears a reason or note.
+        const edited = await api.patch<{ id: string }>(`/invoices/${editId}`, {
+          items,
+          discountAmount,
+          discountReason: discountReason.trim(),
+          notes: notes.trim(),
+          interState,
+          therapistId: isPhysio ? undefined : billFor || undefined,
+        });
+        if (issue) await api.post(`/invoices/${editId}/issue`);
+        return edited;
+      }
+      return api.post<{ id: string }>("/invoices", { ...body, issue, therapistId: isPhysio ? undefined : billFor || undefined });
+    },
+    {
+      refresh: ["billing"],
+      // An edit goes back to the bill it came from; a new invoice opens its own screen.
+      onSuccess: (inv) => (editId ? goBack({ pathname: "/invoice/[id]", params: { id: editId } }) : router.replace({ pathname: "/invoice/[id]", params: { id: inv.id } })),
+    },
+  );
 
-  const treatmentLine = (category: string): Line => ({ key: lineSeq++, type: "THERAPY_SESSION", description: category, quantity: "1", unitPrice: String(priceOf.get(category) ?? 0) });
-  // The untouched starter line is replaced rather than left behind as a stray "Consultation".
-  const withoutStarter = (ls: Line[]) => (ls.length === 1 && ls[0].type === "CONSULTATION" && ls[0].description === "Consultation" && ls[0].unitPrice === "500" ? [] : ls);
+  const treatmentLine = (category: string): Line => ({ key: lineSeq++, type: "THERAPY_SESSION", description: category, quantity: "1", unitPrice: String(priceOf.get(category) ?? 0), discount: 0 });
+  // The untouched starter line is replaced rather than left behind as a stray "Consultation" (only on a brand-new invoice).
+  const withoutStarter = (ls: Line[]) => (!editId && ls.length === 1 && ls[0].type === "CONSULTATION" && ls[0].description === "Consultation" && ls[0].unitPrice === "500" ? [] : ls);
   const addPlanTreatments = () =>
     setLines((ls) => {
       const have = new Set(ls.map((l) => l.description));
@@ -141,12 +220,12 @@ function NewInvoiceForm() {
               {preview.data && patient && linesOk && discountOk ? inr(preview.data.totalAmount) : "—"}
             </Text>
           </View>
-          <Button title="Save draft" variant="ghost" onPress={() => save.mutate(false)} disabled={!!missing || save.isPending} style={{ flex: 1 }} />
+          <Button title={editId ? "Save changes" : "Save draft"} variant="ghost" onPress={() => save.mutate(false)} disabled={!!missing || save.isPending} style={{ flex: 1 }} />
           <Button title="Issue invoice" icon="checkmark-circle-outline" onPress={() => save.mutate(true)} disabled={!!missing} loading={save.isPending} style={{ flex: 1.2 }} />
         </Row>
       }
     >
-      <TopBar title="New invoice" onBack={() => goBack("/billing")} />
+      <TopBar title={editId ? "Edit bill" : "New invoice"} onBack={() => goBack(editId ? { pathname: "/invoice/[id]", params: { id: editId } } : "/billing")} />
 
       <Card>
         <SectionTitle>1. Patient</SectionTitle>
@@ -156,7 +235,7 @@ function NewInvoiceForm() {
               <Text weight="semibold">{fullName(patient)}</Text>
               <Muted style={{ fontSize: 12 }}>{patient.patientCode} · {patient.phone}</Muted>
             </View>
-            <Button title="Change" variant="ghost" small onPress={() => setPatient(null)} />
+            {editId ? null : <Button title="Change" variant="ghost" small onPress={() => setPatient(null)} />}
           </Row>
         ) : (
           <>
@@ -178,7 +257,7 @@ function NewInvoiceForm() {
         )}
         {patient ? (
           isPhysio ? (
-            <Muted style={{ fontSize: 12 }}>Billed to you: the payment counts in your collections.</Muted>
+            <Muted style={{ fontSize: 12 }}>{editId ? "Stays with the physio this bill belongs to." : "Billed to you: the payment counts in your collections."}</Muted>
           ) : (
             <SelectField
               label="Bill for physiotherapist"
@@ -195,6 +274,7 @@ function NewInvoiceForm() {
 
       <Card>
         <SectionTitle>2. Items</SectionTitle>
+        {editId && lines.some((l) => !!l.appointmentId) ? <Muted style={{ fontSize: 12 }}>Drafted automatically when the visit was booked. Change anything that is different, then issue it.</Muted> : null}
         {lines.map((l, idx) => (
           <View key={l.key} style={styles.line}>
             <Row style={{ justifyContent: "space-between" }}>

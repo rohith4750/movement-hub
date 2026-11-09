@@ -201,7 +201,13 @@ appointmentRouter.get(
   handler(async (req, res) => {
     const a = await prisma.appointment.findUniqueOrThrow({
       where: { id: req.params.id },
-      include: { ...include, history: { orderBy: { createdAt: "asc" } }, slot: true },
+      include: {
+        ...include,
+        history: { orderBy: { createdAt: "asc" } },
+        slot: true,
+        // The bill(s) this visit is on, for staff (patients don't see unissued drafts).
+        ...(isPatient(req) ? {} : { invoiceItems: { select: { invoice: { select: { id: true, invoiceNo: true, status: true, totalAmount: true, dueAmount: true } } } } }),
+      },
     });
     assertPatientAccess(req, a.patientId);
     ok(res, a);

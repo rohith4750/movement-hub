@@ -3,11 +3,11 @@ import { z } from "zod";
 import { prisma, type Prisma } from "@movement-hub/database";
 import { created, handler, idParam, meta, ok, paginationQuery, paging, q } from "../../lib/http";
 import { audit } from "../../lib/audit";
-import { unprocessable } from "../../lib/http-error";
+import { notFound, unprocessable } from "../../lib/http-error";
 import { dateOnly, dayRange } from "../../lib/time";
-import { assertPatientAccess, authorize, scopePatient } from "../../middleware/auth";
+import { assertPatientAccess, authorize, isPatient, scopePatient } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
-import { assertBillAccess, billerOf, billingScope, computeTotals, createInvoice, invoiceWithDetails } from "./billing.service";
+import { assertBillAccess, billerOf, billingScope, computeTotals, createInvoice, invoiceWithDetails, updateDraftInvoice } from "./billing.service";
 import { renderInvoiceHtml } from "./invoice.template";
 
 export const invoiceRouter = Router();
@@ -53,7 +53,8 @@ invoiceRouter.get(
     const scope = billingScope(req.user, query.therapistId);
     const where: Prisma.InvoiceWhereInput = {
       deletedAt: null,
-      status: query.status,
+      // A patient never sees a bill the clinic has not issued yet (the front desk may still be editing it).
+      status: isPatient(req) ? (query.status && query.status !== "DRAFT" ? query.status : { not: "DRAFT" }) : query.status,
       ...(scope ? { therapistId: scope === "none" ? null : scope } : {}),
       patientId: scopePatient(req, query.patientId),
       ...(query.from || query.to ? { createdAt: { ...(query.from ? { gte: dayRange(query.from).gte } : {}), ...(query.to ? { lt: dayRange(query.to).lt } : {}) } } : {}),
@@ -100,23 +101,24 @@ invoiceRouter.get(
     const inv = await invoiceWithDetails(req.params.id);
     assertPatientAccess(req, inv.patientId);
     assertBillAccess(req.user, inv);
+    if (isPatient(req) && inv.status === "DRAFT") throw notFound("Invoice");
     ok(res, inv);
   }),
 );
 
-/** Only DRAFT invoices can be edited. Issued invoices are immutable. */
+/** Only DRAFT invoices can be edited. Issued invoices are immutable. The front desk edits the drafts made when a visit is booked. */
 invoiceRouter.patch(
   "/:id",
-  authorize("ACCOUNTANT", "ADMIN"),
+  authorize("ACCOUNTANT", "RECEPTIONIST", "ADMIN"),
   validate({ params: idParam, body: invoiceBody.omit({ patientId: true, issue: true }).partial() }),
   handler(async (req, res) => {
     const before = await prisma.invoice.findUniqueOrThrow({ where: { id: req.params.id }, include: { items: true } });
     assertBillAccess(req.user, before);
     if (before.status !== "DRAFT") throw unprocessable("INVOICE_LOCKED", "Issued invoices cannot be edited. Cancel or refund instead.");
     const inv = await prisma.$transaction(async (tx) => {
-      await tx.invoice.delete({ where: { id: before.id } });
-      return createInvoice(
+      return updateDraftInvoice(
         tx,
+        before.id,
         {
           patientId: before.patientId,
           items: req.body.items ?? before.items.map((i) => ({ ...i, unitPrice: Number(i.unitPrice), discount: Number(i.discount), appointmentId: i.appointmentId ?? undefined, patientPackageId: i.patientPackageId ?? undefined })),
@@ -124,9 +126,10 @@ invoiceRouter.patch(
           discountReason: req.body.discountReason ?? before.discountReason ?? undefined,
           notes: req.body.notes ?? before.notes ?? undefined,
           dueDate: req.body.dueDate ? dateOnly(req.body.dueDate) : before.dueDate ?? undefined,
-          interState: req.body.interState,
+          interState: req.body.interState ?? Number(before.igstAmount) > 0, // keep IGST vs CGST+SGST as it was
           // Editing keeps whose bill it is unless the Super Admin changes it.
           therapistId: req.body.therapistId !== undefined ? req.body.therapistId : before.therapistId,
+          keepTherapist: before.therapistId !== null,
         },
         billerOf(req),
       );
@@ -174,6 +177,7 @@ invoiceRouter.get(
     const inv = await invoiceWithDetails(req.params.id);
     assertPatientAccess(req, inv.patientId);
     assertBillAccess(req.user, inv);
+    if (isPatient(req) && inv.status === "DRAFT") throw notFound("Invoice");
     res.type("html").send(renderInvoiceHtml(inv));
   }),
 );

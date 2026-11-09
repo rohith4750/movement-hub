@@ -190,7 +190,20 @@ export interface InvoiceDetail extends Invoice {
   cgstAmount: string;
   sgstAmount: string;
   igstAmount: string;
-  items: { id: string; description: string; quantity: number; unitPrice: string; amount: string }[];
+  notes: string | null;
+  items: {
+    id: string;
+    type: string;
+    description: string;
+    quantity: number;
+    unitPrice: string;
+    discount: string;
+    amount: string;
+    appointmentId: string | null;
+    patientPackageId: string | null;
+    /** The visit this line was drafted for (set when the bill was made automatically at booking). */
+    appointment?: { id: string; appointmentNo: string; startAt: string; type: string } | null;
+  }[];
   payments: { id: string; receiptNo: string; method: string; amount: string; status: string; paidAt: string | null }[];
   patient: { id: string; patientCode: string; firstName: string; lastName: string | null; phone: string };
 }

@@ -24,6 +24,27 @@ export default function InvoiceScreen() {
   );
 }
 
+/** One bill line; a line drafted for a visit links to that visit. */
+function ItemRow({ item }: { item: InvoiceDetail["items"][number] }) {
+  // Plain values, worked out here: the React Compiler can turn `x?.y` / `x!.y` read inside a callback into an unguarded check.
+  const visitId = item.appointment ? item.appointment.id : "";
+  const visitText = item.appointment ? `Visit ${item.appointment.appointmentNo} · ${date(item.appointment.startAt)} ›` : "";
+  return (
+    <Row style={{ justifyContent: "space-between", alignItems: "flex-start", paddingVertical: 4 }}>
+      <View style={{ flex: 1, paddingRight: space.sm }}>
+        <Text>{item.description}</Text>
+        {item.quantity > 1 ? <Muted style={{ fontSize: 12 }}>{item.quantity} × {inr(item.unitPrice)}</Muted> : null}
+        {visitId ? (
+          <Pressable onPress={() => router.push({ pathname: "/appointment/[id]", params: { id: visitId } })} accessibilityRole="link" hitSlop={6}>
+            <Muted style={{ fontSize: 12, color: colors.gold700 }}>{visitText}</Muted>
+          </Pressable>
+        ) : null}
+      </View>
+      <Text weight="semibold">{inr(item.amount)}</Text>
+    </Row>
+  );
+}
+
 function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const user = useAuth((s) => s.user);
@@ -92,6 +113,8 @@ function InvoiceDetailScreen() {
   const canCancel = hasRole(user, "ADMIN", "ACCOUNTANT");
   const payable = !!inv && ["ISSUED", "PARTIALLY_PAID"].includes(inv.status) && Number(inv.dueAmount) > 0;
   const cancellable = !!inv && ["DRAFT", "ISSUED"].includes(inv.status) && Number(inv.paidAmount) === 0;
+  // A bill made automatically at booking has its lines tied to the visit.
+  const drafted = !!inv && inv.items.some((i) => !!i.appointmentId);
 
   return (
     <Screen edges={["top", "bottom"]} refreshing={q.isRefetching} onRefresh={() => q.refetch()}>
@@ -117,13 +140,7 @@ function InvoiceDetailScreen() {
           <Card>
             <H2>Items</H2>
             {inv.items.map((i) => (
-              <Row key={i.id} style={{ justifyContent: "space-between", alignItems: "flex-start", paddingVertical: 4 }}>
-                <View style={{ flex: 1, paddingRight: space.sm }}>
-                  <Text>{i.description}</Text>
-                  {i.quantity > 1 ? <Muted style={{ fontSize: 12 }}>{i.quantity} × {inr(i.unitPrice)}</Muted> : null}
-                </View>
-                <Text weight="semibold">{inr(i.amount)}</Text>
-              </Row>
+              <ItemRow key={i.id} item={i} />
             ))}
             <Divider />
             <KeyValue k="Subtotal" v={inr(inv.subtotal)} />
@@ -145,7 +162,13 @@ function InvoiceDetailScreen() {
           {/* Actions */}
           <View style={{ gap: space.sm }}>
             <ErrorBox error={pdfError ?? issue.error} />
-            {inv.status === "DRAFT" && canIssue ? <Button title="Issue invoice" icon="checkmark-circle-outline" onPress={() => issue.mutate()} loading={issue.isPending} /> : null}
+            {inv.status === "DRAFT" && canIssue ? (
+              <>
+                {drafted ? <Muted style={{ fontSize: 12 }}>Drafted automatically when the visit was booked. Check the amount, edit it if needed, then issue it.</Muted> : null}
+                <Button title="Edit bill" variant="ghost" icon="create-outline" onPress={() => router.push({ pathname: "/invoice/new", params: { edit: id } })} />
+                <Button title="Issue invoice" icon="checkmark-circle-outline" onPress={() => issue.mutate()} loading={issue.isPending} />
+              </>
+            ) : null}
             <Button title="Print / share PDF" variant="ghost" icon="share-outline" onPress={() => sharePdf("invoice", `/invoices/${id}/pdf`)} loading={pdfBusy === "invoice"} disabled={!!pdfBusy} />
             {cancellable && canCancel ? <Button title="Cancel invoice" variant="danger" icon="close-circle-outline" onPress={() => setCancelOpen(true)} /> : null}
             {["ISSUED", "PARTIALLY_PAID"].includes(inv.status) && Number(inv.paidAmount) > 0 && canCancel ? (

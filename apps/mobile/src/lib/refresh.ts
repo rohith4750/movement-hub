@@ -9,8 +9,8 @@ import { onEdit } from "./form-activity";
  * when next shown, so this stays cheap.
  */
 const GROUPS = {
-  /** Booking, rescheduling, cancelling, status changes, walk-ins, the day planner. */
-  appointments: ["appointments", "appointment", "planner", "calendar", "availability", "availability-summary", "sessions", "session", "home-visits", "patient", "patients", "plans", "plan", "patient-packages", "dashboard", "report"],
+  /** Booking, rescheduling, cancelling, status changes, walk-ins, the day planner. A booking drafts a bill, and a cancel removes it, so the bill lists refresh too. */
+  appointments: ["appointments", "appointment", "planner", "calendar", "availability", "availability-summary", "sessions", "session", "home-visits", "patient", "patients", "plans", "plan", "patient-packages", "invoices", "invoice", "dashboard", "report"],
   /** Registering or editing a patient. */
   patients: ["patients", "patient", "progress", "planner", "appointments", "appointment", "dashboard"],
   /** Consultations, treatment plans, therapy sessions, daily progress. */

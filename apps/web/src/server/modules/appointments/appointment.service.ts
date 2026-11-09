@@ -2,6 +2,7 @@ import { prisma, type AppointmentStatus, type AppointmentType, type Prisma } fro
 import { nextCode, type Tx } from "../../lib/codes";
 import { badRequest, conflict, notFound, unprocessable } from "../../lib/http-error";
 import { localDateString } from "../../lib/time";
+import { discardDraftBills, draftInvoiceForAppointment } from "../billing/billing.service";
 import { notifyPatient } from "../notifications/notification.service";
 
 export interface BookInput {
@@ -127,6 +128,8 @@ export async function book(input: BookInput, bookedById: string) {
 }
 
 export async function afterBooked(appointmentId: string) {
+  // A draft bill for the visit, for staff to check, edit and issue. A billing problem never undoes a booking.
+  await draftInvoiceForAppointment(appointmentId).catch((e) => console.warn("[billing] could not draft a bill for", appointmentId, (e as Error)?.message ?? e));
   const a = await prisma.appointment.findUniqueOrThrow({ where: { id: appointmentId }, include: { therapist: { include: { user: true } } } });
   const when = a.startAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" });
   await notifyPatient(a.patientId, "APPOINTMENT_CONFIRMATION", "appointment_confirmation", { appointmentNo: a.appointmentNo, when, therapist: a.therapist.user.name });
@@ -168,6 +171,7 @@ export async function cancel(appointmentId: string, userId: string, reason: stri
     if (a.slotId) await tx.therapistSlot.update({ where: { id: a.slotId }, data: { status: "AVAILABLE" } });
     await tx.therapySession.updateMany({ where: { appointmentId: a.id }, data: { status: "CANCELLED" } });
     await tx.homeVisit.updateMany({ where: { appointmentId: a.id }, data: { status: "CANCELLED" } });
+    await discardDraftBills(tx, a.id); // the unissued bill drafted for this visit is no longer needed
     return res;
   });
   await prisma.notification.updateMany({
@@ -204,6 +208,8 @@ export async function reschedule(appointmentId: string, newSlotId: string, userI
     if (visit) {
       await tx.homeVisit.update({ where: { id: visit.id }, data: { appointmentId: created.id, therapistId: created.therapistId } });
     }
+    // The draft bill follows the visit to its new time (an issued bill stays where it is).
+    await tx.invoiceItem.updateMany({ where: { appointmentId: old.id, invoice: { status: "DRAFT" } }, data: { appointmentId: created.id } });
     return created;
   });
   await notifyPatient(fresh.patientId, "APPOINTMENT_RESCHEDULED", "appointment_rescheduled", {
@@ -236,13 +242,14 @@ export async function deleteAppointment(
         therapySession: { include: { exercises: true } },
         homeVisit: true,
         history: { orderBy: { createdAt: "asc" } },
-        invoiceItems: { select: { id: true } },
         rescheduledTo: { select: { id: true } },
       },
     });
     if (!a) throw notFound("Appointment");
-    // Billing is never silently changed — the invoice must be cancelled first.
-    if (a.invoiceItems.length) throw unprocessable("APPOINTMENT_BILLED", "This appointment is on an invoice. Cancel the invoice first.");
+    // An unissued draft bill goes with the visit; an issued or cancelled invoice is a financial record,
+    // so the visit stays until that invoice is dealt with. (A refusal below rolls this removal back.)
+    await discardDraftBills(tx, a.id);
+    if (await tx.invoiceItem.count({ where: { appointmentId: a.id } })) throw unprocessable("APPOINTMENT_BILLED", "This appointment is on an invoice. Cancel the invoice first.");
 
     if (!opts.force) {
       // Receptionists may only delete bookings that hold no clinical data.

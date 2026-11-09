@@ -30,8 +30,9 @@ export interface Biller {
  * bills, it goes to the physio they chose, else the physio who did the billed visit, else the
  * physio of the billed package's plan, else the patient's regular physio.
  */
-export async function resolveInvoiceTherapist(tx: Tx, input: { patientId: string; items: InvoiceItemInput[]; therapistId?: string | null }, by: Biller) {
-  if (by.role === "PHYSIOTHERAPIST" && by.therapistId) return by.therapistId;
+export async function resolveInvoiceTherapist(tx: Tx, input: { patientId: string; items: InvoiceItemInput[]; therapistId?: string | null; keepTherapist?: boolean }, by: Biller) {
+  // `keepTherapist`: editing a draft that already has an owner, so a physio editing a colleague's draft does not take it over.
+  if (by.role === "PHYSIOTHERAPIST" && by.therapistId && !input.keepTherapist) return by.therapistId;
   if (input.therapistId) {
     const t = await tx.therapist.findFirst({ where: { id: input.therapistId, isActive: true }, select: { id: true } });
     if (!t) throw unprocessable("THERAPIST_NOT_FOUND", "Physiotherapist not found or inactive");
@@ -68,6 +69,8 @@ export interface InvoiceInput {
   patientId: string;
   /** Super Admin may choose the physio; ignored for physios (they always bill for themselves). */
   therapistId?: string | null;
+  /** Editing a draft: keep the physio it already belongs to (see resolveInvoiceTherapist). */
+  keepTherapist?: boolean;
   items: InvoiceItemInput[];
   discountAmount?: number;
   discountReason?: string;
@@ -100,47 +103,125 @@ export function computeTotals(items: InvoiceItemInput[], discountAmount: number,
   };
 }
 
-export async function createInvoice(tx: Tx, input: InvoiceInput, by: Biller, issue = false) {
+/** The calculated money fields, the line rows and the owning physio for an invoice input. */
+async function invoiceParts(tx: Tx, input: InvoiceInput, by: Biller) {
   const patient = await tx.patient.findUniqueOrThrow({ where: { id: input.patientId } });
   const settings = await tx.hospitalSetting.findUnique({ where: { branchId: patient.branchId } });
   const t = computeTotals(input.items, input.discountAmount ?? 0, settings?.gstPercent ?? D(0), input.interState);
   const therapistId = await resolveInvoiceTherapist(tx, input, by);
+  const money = {
+    therapistId,
+    subtotal: t.subtotal,
+    discountAmount: input.discountAmount ?? 0,
+    discountReason: input.discountReason,
+    taxableAmount: t.taxableAmount,
+    gstPercent: t.gstPercent,
+    cgstAmount: t.cgstAmount,
+    sgstAmount: t.sgstAmount,
+    igstAmount: t.igstAmount,
+    totalAmount: t.totalAmount,
+    dueAmount: t.totalAmount,
+    dueDate: input.dueDate,
+    notes: input.notes,
+  };
+  const lines = t.lines.map((l) => ({
+    type: l.type,
+    description: l.description,
+    quantity: l.quantity,
+    unitPrice: l.unitPrice,
+    discount: l.discount ?? 0,
+    amount: l.amount,
+    appointmentId: l.appointmentId,
+    patientPackageId: l.patientPackageId,
+  }));
+  return { patient, money, lines };
+}
+
+export async function createInvoice(tx: Tx, input: InvoiceInput, by: Biller, issue = false) {
+  const { patient, money, lines } = await invoiceParts(tx, input, by);
   return tx.invoice.create({
     data: {
+      ...money,
       invoiceNo: await nextCode(tx, "invoice"),
       branchId: patient.branchId,
       patientId: patient.id,
-      therapistId,
       status: issue ? "ISSUED" : "DRAFT",
       issuedAt: issue ? new Date() : undefined,
-      subtotal: t.subtotal,
-      discountAmount: input.discountAmount ?? 0,
-      discountReason: input.discountReason,
-      taxableAmount: t.taxableAmount,
-      gstPercent: t.gstPercent,
-      cgstAmount: t.cgstAmount,
-      sgstAmount: t.sgstAmount,
-      igstAmount: t.igstAmount,
-      totalAmount: t.totalAmount,
-      dueAmount: t.totalAmount,
-      dueDate: input.dueDate,
-      notes: input.notes,
       createdById: by.id,
-      items: {
-        create: t.lines.map((l) => ({
-          type: l.type,
-          description: l.description,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          discount: l.discount ?? 0,
-          amount: l.amount,
-          appointmentId: l.appointmentId,
-          patientPackageId: l.patientPackageId,
-        })),
-      },
+      items: { create: lines },
     },
     include: { items: true },
   });
+}
+
+/**
+ * Edit a DRAFT in place: same invoice, same number, new lines and totals. (Editing used to delete and
+ * recreate it, which changed the id and number and broke the link from the visit it was drafted for.)
+ */
+export async function updateDraftInvoice(tx: Tx, invoiceId: string, input: InvoiceInput, by: Biller) {
+  const { money, lines } = await invoiceParts(tx, input, by);
+  return tx.invoice.update({
+    where: { id: invoiceId },
+    data: { ...money, items: { deleteMany: {}, create: lines } },
+    include: { items: true },
+  });
+}
+
+/**
+ * A draft bill for a booked visit, so the front desk does not have to build one by hand: it holds what
+ * the visit normally costs (the clinic's price for each treatment in the plan, else the flat fee in
+ * settings) and stays a DRAFT until staff check it, edit it if needed and issue it.
+ *
+ * Nothing is drafted when the visit is already on a bill, is paid for by a package, or the clinic has
+ * not set a price yet (a bill of zero would be noise). Returns the draft, or null when none was made.
+ */
+export async function draftInvoiceForAppointment(appointmentId: string) {
+  return prisma.$transaction(async (tx) => {
+    const a = await tx.appointment.findUnique({
+      where: { id: appointmentId },
+      include: {
+        therapySession: { select: { patientPackageId: true } },
+        treatmentPlan: { select: { items: { select: { category: true } } } },
+        invoiceItems: { select: { id: true }, take: 1 },
+      },
+    });
+    if (!a || a.invoiceItems.length) return null;
+    if (["CANCELLED", "RESCHEDULED", "NO_SHOW"].includes(a.status)) return null;
+    if (a.therapySession?.patientPackageId) return null; // the package already paid for it
+
+    const settings = await tx.hospitalSetting.findUnique({ where: { branchId: a.branchId } });
+    if (!settings) return null;
+
+    let items: InvoiceItemInput[] = [];
+    if (a.type === "THERAPY_SESSION") {
+      const categories = [...new Set((a.treatmentPlan?.items ?? []).map((i) => i.category))];
+      const priced = categories.length
+        ? await tx.treatmentPrice.findMany({ where: { category: { in: categories }, isActive: true, price: { gt: 0 } }, orderBy: [{ sortOrder: "asc" }, { category: "asc" }] })
+        : [];
+      items = priced.length
+        ? priced.map((p) => ({ type: "THERAPY_SESSION" as const, description: p.category, quantity: 1, unitPrice: Number(p.price) }))
+        : [{ type: "THERAPY_SESSION" as const, description: "Therapy session", quantity: 1, unitPrice: Number(settings.therapySessionFee) }];
+    } else if (a.type === "HOME_VISIT") {
+      items = [{ type: "HOME_VISIT", description: "Home visit", quantity: 1, unitPrice: Number(settings.homeVisitFee) }];
+    } else {
+      items = [{ type: "CONSULTATION", description: a.type === "FOLLOW_UP_CONSULTATION" ? "Follow-up consultation" : "Consultation", quantity: 1, unitPrice: Number(settings.consultationFee) }];
+    }
+    items = items.filter((i) => i.unitPrice > 0).map((i) => ({ ...i, appointmentId: a.id }));
+    if (!items.length) return null;
+
+    // Billed to the visit's physio (createInvoice finds them from the linked appointment).
+    return createInvoice(tx, { patientId: a.patientId, items }, { id: a.bookedById, role: "ADMIN", therapistId: null });
+  });
+}
+
+/**
+ * Removes the unissued draft bills of a visit that is cancelled or deleted. Issued, paid and cancelled
+ * bills are never touched: those are financial records.
+ */
+export async function discardDraftBills(tx: Tx, appointmentId: string) {
+  const drafts = await tx.invoice.findMany({ where: { status: "DRAFT", deletedAt: null, items: { some: { appointmentId } } }, select: { id: true } });
+  if (drafts.length) await tx.invoice.deleteMany({ where: { id: { in: drafts.map((d) => d.id) } } });
+  return drafts.length;
 }
 
 /** Recalculate paid/due/status after a payment or refund. */
@@ -166,7 +247,7 @@ export async function invoiceWithDetails(id: string) {
   return prisma.invoice.findUniqueOrThrow({
     where: { id },
     include: {
-      items: true,
+      items: { include: { appointment: { select: { id: true, appointmentNo: true, startAt: true, type: true } } } },
       therapist: { select: { id: true, user: { select: { name: true } } } },
       payments: { include: { refunds: true }, orderBy: { createdAt: "asc" } },
       patient: { select: { id: true, patientCode: true, firstName: true, lastName: true, phone: true, email: true, addresses: { where: { isDefault: true }, take: 1 } } },

@@ -59,6 +59,8 @@ function BillingList() {
   });
   const rows = (q.data?.data ?? []).filter((i) => (filter === "due" ? DUE.includes(i.status) : true));
   const outstanding = rows.filter((i) => DUE.includes(i.status)).reduce((s, i) => s + Number(i.dueAmount), 0);
+  // Bills drafted automatically when visits were booked wait here for the front desk to check and issue.
+  const draftCount = (q.data?.data ?? []).filter((i) => i.status === "DRAFT").length;
   const canCreate = hasRole(user, "ACCOUNTANT", "RECEPTIONIST", "ADMIN");
 
   return (
@@ -92,6 +94,21 @@ function BillingList() {
           { value: "all", label: "All" },
         ]}
       />
+
+      {draftCount > 0 && filter !== "DRAFT" ? (
+        <Pressable onPress={() => setFilter("DRAFT")} accessibilityRole="button" accessibilityLabel={`${draftCount} draft bills to check`}>
+          <Card gold>
+            <Row gap={space.sm}>
+              <Ionicons name="create-outline" size={22} color={colors.gold700} />
+              <View style={{ flex: 1 }}>
+                <Text weight="semibold">{draftCount === 1 ? "1 draft bill to check" : `${draftCount} draft bills to check`}</Text>
+                <Muted style={{ fontSize: 12 }}>Made at booking. Edit, then issue.</Muted>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+            </Row>
+          </Card>
+        </Pressable>
+      ) : null}
 
       {outstanding > 0 && (filter === "due" || filter === "all") ? (
         <Card gold>
